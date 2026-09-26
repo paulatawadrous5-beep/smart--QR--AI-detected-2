@@ -1,4 +1,3 @@
-HTML
 <!DOCTYPE html>
 <html lang="en" data-theme="system">
 <head>
@@ -7,7 +6,6 @@ HTML
   <title>Smart QR — Intelligent Context-Aware QR Code Studio</title>
   <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
   <link rel="stylesheet" href="style.css">
-  <!-- Lightweight standard QR generation library -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
 </head>
 <body>
@@ -41,33 +39,33 @@ HTML
       <div class="card url-card">
         <label for="urlInput" class="card-label">Target URL or Content</label>
         <div class="input-wrapper">
-          <input type="text" id="urlInput" placeholder="https://en.wikipedia.org/wiki/Ada_Lovelace" value="https://en.wikipedia.org/wiki/Ada_Lovelace" autocomplete="off" spellcheck="false">
+          <input type="text" id="urlInput" placeholder="Paste a URL (e.g., https://example.com)" value="" autocomplete="off" spellcheck="false">
           <button id="analyzeBtn" class="primary-btn" title="Analyze destination">
             <span>Analyze</span>
           </button>
         </div>
       </div>
 
-      <!-- Smart Detection Card -->
+      <!-- Smart Detection Card (Clean Initial State) -->
       <div class="card detection-card" id="detectionCard">
         <div class="detection-header">
-          <div class="badge-confidence" id="confidenceBadge">Basic Detection</div>
-          <span class="detection-platform" id="detectedPlatformText">Website</span>
+          <div class="badge-confidence" id="confidenceBadge">Awaiting Input</div>
+          <span class="detection-platform" id="detectedPlatformText">—</span>
         </div>
 
         <div class="detection-body">
           <div class="detected-avatar" id="detectedAvatar">
-            <span id="detectedAvatarPlaceholder">QR</span>
+            <span id="detectedAvatarPlaceholder">—</span>
           </div>
           <div class="detected-info">
-            <h3 id="detectedTitle">Ada Lovelace</h3>
-            <p id="detectedCategory">Biography / Computing Pioneer</p>
-            <span class="detected-url-crumb" id="detectedDomain">en.wikipedia.org</span>
+            <h3 id="detectedTitle">Paste a URL to analyze</h3>
+            <p id="detectedCategory">Destination details will appear here</p>
+            <span class="detected-url-crumb" id="detectedDomain"></span>
           </div>
         </div>
 
         <div class="smart-explanation" id="smartExplanation">
-          Smart QR detected an educational/editorial article. Applied clean contrast, refined square-dot geometry, and extracted editorial tones.
+          Smart QR dynamically synthesizes destination evidence and recommends a scan-safe design.
         </div>
 
         <div class="detection-actions">
@@ -86,7 +84,7 @@ HTML
       <div class="card presets-card">
         <label class="card-label">Distinct Design Presets</label>
         <div class="presets-grid" id="presetsGrid">
-          <!-- 12 completely distinct presets will render here -->
+          <!-- Presets will render dynamically -->
         </div>
       </div>
 
@@ -155,14 +153,34 @@ HTML
 
           <!-- Logo Management -->
           <div class="control-group">
-            <label>Logo Mode</label>
+            <label>Logo Selection</label>
             <div class="radio-pill-group">
               <label><input type="radio" name="logoMode" value="auto" checked> Auto Smart</label>
               <label><input type="radio" name="logoMode" value="none"> None</label>
-              <label><input type="radio" name="logoMode" value="custom"> Upload Custom</label>
+              <label><input type="radio" name="logoMode" value="custom"> Custom Upload</label>
             </div>
             <div id="customUploadContainer" class="hidden-field" style="margin-top: 8px;">
               <input type="file" id="logoUpload" accept="image/*">
+            </div>
+          </div>
+
+          <!-- Integrated Custom QR Text Feature -->
+          <div class="control-group">
+            <label>QR Text (Integrated Inside Matrix)</label>
+            <div class="qr-text-box">
+              <div class="qr-text-row">
+                <input type="text" id="qrTextInput" class="qr-text-input" placeholder="e.g. PAULA, MENU, SCAN" maxlength="12" autocomplete="off" spellcheck="false">
+                <button type="button" id="qrTextClearBtn" class="clear-btn">Clear</button>
+              </div>
+              <div class="control-row" style="margin-top: 4px;">
+                <div class="control-group">
+                  <label for="qrTextModeSelect">Rendering Mode</label>
+                  <select id="qrTextModeSelect">
+                    <option value="dot">Dot Text (Dark Modules)</option>
+                    <option value="negative">Negative Text (Cutout)</option>
+                  </select>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -191,15 +209,15 @@ HTML
                 <option value="L">Low (7%)</option>
                 <option value="M">Medium (15%)</option>
                 <option value="Q">Quartile (25%)</option>
-                <option value="H" selected>High (30% - Best with Logo)</option>
+                <option value="H" selected>High (30% - Best Reliability)</option>
               </select>
             </div>
             <div class="control-group">
               <label for="quietZoneSelect">Quiet Zone Margin</label>
               <select id="quietZoneSelect">
                 <option value="1">Minimal (1 module)</option>
-                <option value="2" selected>Standard (2 modules)</option>
-                <option value="4">Strict Spec (4 modules)</option>
+                <option value="2">Standard (2 modules)</option>
+                <option value="4" selected>Strict Spec (4 modules)</option>
               </select>
             </div>
           </div>
@@ -214,7 +232,7 @@ HTML
           <span class="preview-heading">Production Preview</span>
           <div class="scan-status-pill" id="scanStatusPill">
             <span class="status-indicator-dot"></span>
-            <span id="scanStatusText">Scan Verified</span>
+            <span id="scanStatusText">Awaiting Input</span>
           </div>
         </div>
 
@@ -226,15 +244,15 @@ HTML
         <div class="telemetry-bar">
           <div class="telemetry-item">
             <span class="telemetry-label">Contrast Ratio</span>
-            <span class="telemetry-val" id="contrastVal">16.4:1</span>
+            <span class="telemetry-val" id="contrastVal">—</span>
           </div>
           <div class="telemetry-item">
             <span class="telemetry-label">Logo Coverage</span>
-            <span class="telemetry-val" id="logoAreaVal">9% (Safe)</span>
+            <span class="telemetry-val" id="logoAreaVal">—</span>
           </div>
           <div class="telemetry-item">
             <span class="telemetry-label">ECC Rating</span>
-            <span class="telemetry-val" id="eccVal">High (H)</span>
+            <span class="telemetry-val" id="eccVal">—</span>
           </div>
         </div>
 
@@ -246,7 +264,7 @@ HTML
         <div class="export-actions">
           <button id="downloadPngBtn" class="download-btn primary-download">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-            Download PNG (High-Res)
+            Download PNG (1600px High-Res)
           </button>
           <button id="downloadSvgBtn" class="download-btn secondary-download">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><text x="7" y="18" font-size="6" font-weight="bold">SVG</text></svg>

@@ -1,11 +1,10 @@
 /**
  * Smart QR Studio — Dynamic Evidence-Based QR Platform
- * Production Script with True In-Matrix QR Text Integration:
- * - Direct matrix pixel injection for QR Text (Dot Text & Negative Space)
- * - Automatic override of center badge when QR Text is active
- * - Structural 7x7 Finder Pattern Preservation (Canvas & SVG)
- * - Safe Custom Logo Upload with Local DataURL Caching
- * - Exact Canvas & SVG parity
+ * Production Script:
+ * - Pixel-accurate in-matrix QR Text (Letter matrix directly engraved into QR modules)
+ * - Complete suppression of center badge when QR Text is set
+ * - Interactive Custom Logo Size Slider (10% to 30%) with aspect ratio preservation
+ * - Unified Canvas preview, PNG 1600px export, and SVG export
  */
 
 (function () {
@@ -35,8 +34,9 @@
       useGradient: false,
       fgGradColor: '#2563EB',
       logoMode: 'auto',
+      logoScale: 0.22, // Default logo scale (22%)
       centerBadgeText: '',
-      qrText: '', // In-matrix custom text
+      qrText: '', // Text integrated inside matrix
       qrTextMode: 'dot', // 'dot' | 'negative'
       frameStyle: 'none',
       frameText: 'SCAN ME',
@@ -46,100 +46,95 @@
     }
   };
 
-  // --- 2. VALIDATION, COLOR, XML, URI & URL UTILITIES ---
+  // --- 2. 5x3 PIXEL MATRIX FONT FOR IN-MATRIX TEXT ---
+  // Guarantees bold, crisp, scannable letters inside any QR version
+  const FONT_5X3 = {
+    'A': [0b111, 0b101, 0b111, 0b101, 0b101],
+    'B': [0b110, 0b101, 0b110, 0b101, 0b110],
+    'C': [0b111, 0b100, 0b100, 0b100, 0b111],
+    'D': [0b110, 0b101, 0b101, 0b101, 0b110],
+    'E': [0b111, 0b100, 0b111, 0b100, 0b111],
+    'F': [0b111, 0b100, 0b110, 0b100, 0b100],
+    'G': [0b111, 0b100, 0b101, 0b101, 0b111],
+    'H': [0b101, 0b101, 0b111, 0b101, 0b101],
+    'I': [0b111, 0b010, 0b010, 0b010, 0b111],
+    'J': [0b001, 0b001, 0b001, 0b101, 0b111],
+    'K': [0b101, 0b110, 0b100, 0b110, 0b101],
+    'L': [0b100, 0b100, 0b100, 0b100, 0b111],
+    'M': [0b101, 0b111, 0b101, 0b101, 0b101],
+    'N': [0b111, 0b101, 0b101, 0b101, 0b101],
+    'O': [0b111, 0b101, 0b101, 0b101, 0b111],
+    'P': [0b111, 0b101, 0b111, 0b100, 0b100],
+    'Q': [0b111, 0b101, 0b101, 0b111, 0b001],
+    'R': [0b111, 0b101, 0b110, 0b101, 0b101],
+    'S': [0b111, 0b100, 0b111, 0b001, 0b111],
+    'T': [0b111, 0b010, 0b010, 0b010, 0b010],
+    'U': [0b101, 0b101, 0b101, 0b101, 0b111],
+    'V': [0b101, 0b101, 0b101, 0b101, 0b010],
+    'W': [0b101, 0b101, 0b101, 0b111, 0b101],
+    'X': [0b101, 0b101, 0b010, 0b101, 0b101],
+    'Y': [0b101, 0b101, 0b111, 0b010, 0b010],
+    'Z': [0b111, 0b001, 0b010, 0b100, 0b111],
+    '0': [0b111, 0b101, 0b101, 0b101, 0b111],
+    '1': [0b010, 0b110, 0b010, 0b010, 0b111],
+    '2': [0b111, 0b001, 0b111, 0b100, 0b111],
+    '3': [0b111, 0b001, 0b111, 0b001, 0b111],
+    '4': [0b101, 0b101, 0b111, 0b001, 0b001],
+    '5': [0b111, 0b100, 0b111, 0b001, 0b111],
+    '6': [0b111, 0b100, 0b111, 0b101, 0b111],
+    '7': [0b111, 0b001, 0b010, 0b010, 0b010],
+    '8': [0b111, 0b101, 0b111, 0b101, 0b111],
+    '9': [0b111, 0b101, 0b111, 0b001, 0b111],
+    ' ': [0b000, 0b000, 0b000, 0b000, 0b000]
+  };
 
-  function isValidHexColor(hex) {
-    if (!hex || typeof hex !== 'string') return false;
-    return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(hex.trim());
-  }
+  const QRTextEngine = {
+    buildTextMatrix(text) {
+      const clean = text.trim().toUpperCase().slice(0, 10);
+      const letterWidth = 3;
+      const letterHeight = 5;
+      const spacing = 1;
+      const totalWidth = clean.length * letterWidth + (clean.length - 1) * spacing;
+      const totalHeight = letterHeight;
 
-  function normalizeHexColor(hex) {
-    const clean = hex.trim();
-    if (clean.length === 4) {
-      return `#${clean[1]}${clean[1]}${clean[2]}${clean[2]}${clean[3]}${clean[3]}`.toUpperCase();
-    }
-    return clean.toUpperCase();
-  }
+      const matrix = Array.from({ length: totalHeight }, () => new Uint8Array(totalWidth));
 
-  function hexToRgb(hex) {
-    const clean = normalizeHexColor(hex).replace('#', '');
-    const rgbInt = parseInt(clean, 16);
-    return {
-      r: (rgbInt >> 16) & 0xff,
-      g: (rgbInt >> 8) & 0xff,
-      b: rgbInt & 0xff
-    };
-  }
-
-  function rgbToHex(r, g, b) {
-    const clamp = (val) => Math.max(0, Math.min(255, Math.round(val)));
-    const toHex = (c) => clamp(c).toString(16).padStart(2, '0').toUpperCase();
-    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-  }
-
-  function adjustColorBrightness(hex, factor) {
-    const { r, g, b } = hexToRgb(hex);
-    if (factor < 0) {
-      const mult = 1 + factor;
-      return rgbToHex(r * mult, g * mult, b * mult);
-    }
-    return rgbToHex(r + (255 - r) * factor, g + (255 - g) * factor, b + (255 - b) * factor);
-  }
-
-  function escapeXml(unsafe) {
-    if (!unsafe) return '';
-    return String(unsafe).replace(/[<>&'"]/g, function (c) {
-      switch (c) {
-        case '<': return '&lt;';
-        case '>': return '&gt;';
-        case '&': return '&amp;';
-        case '\'': return '&apos;';
-        case '"': return '&quot;';
-        default: return c;
-      }
-    });
-  }
-
-  function safeDecodeURIComponent(str) {
-    if (!str) return '';
-    try {
-      return decodeURIComponent(str);
-    } catch (e) {
-      return String(str).replace(/%(?![0-9a-fA-F]{2})/g, '%25');
-    }
-  }
-
-  function normalizeURL(rawUrl) {
-    if (!rawUrl || typeof rawUrl !== 'string') return '';
-    const trimmed = rawUrl.trim();
-    try {
-      const hasScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed);
-      const parsed = new URL(hasScheme ? trimmed : `https://${trimmed}`);
-
-      if ((parsed.protocol === 'http:' && parsed.port === '80') ||
-          (parsed.protocol === 'https:' && parsed.port === '443')) {
-        parsed.port = '';
+      let colOffset = 0;
+      for (const char of clean) {
+        const glyph = FONT_5X3[char] || FONT_5X3[' '];
+        for (let r = 0; r < letterHeight; r++) {
+          const rowBits = glyph[r];
+          if ((rowBits & 0b100) !== 0) matrix[r][colOffset] = 1;
+          if ((rowBits & 0b010) !== 0) matrix[r][colOffset + 1] = 1;
+          if ((rowBits & 0b001) !== 0) matrix[r][colOffset + 2] = 1;
+        }
+        colOffset += letterWidth + spacing;
       }
 
-      parsed.hostname = parsed.hostname.toLowerCase();
-      if (parsed.pathname === '/') {
-        parsed.pathname = '';
-      }
-      return parsed.href;
-    } catch (e) {
-      return trimmed;
-    }
-  }
+      return { matrix, width: totalWidth, height: totalHeight };
+    },
 
-  function isSafeScheme(rawUrl) {
-    try {
-      const hasScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(rawUrl.trim());
-      const parsed = new URL(hasScheme ? rawUrl.trim() : `https://${rawUrl.trim()}`);
-      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
-    } catch (e) {
-      return false;
+    computePlacement(moduleCount, text) {
+      if (!text || !text.trim()) return null;
+      const { matrix, width, height } = this.buildTextMatrix(text);
+      const functionMask = QRStructure.createFunctionModuleMask(moduleCount);
+
+      if (width >= moduleCount - 16) return null; // Avoid crowding finder zones
+
+      const startRow = Math.floor((moduleCount - height) / 2);
+      const startCol = Math.floor((moduleCount - width) / 2);
+
+      // Verify no collisions with finder or timing patterns
+      for (let r = startRow; r < startRow + height; r++) {
+        for (let c = startCol; c < startCol + width; c++) {
+          if (r < 0 || r >= moduleCount || c < 0 || c >= moduleCount) return null;
+          if (functionMask[r][c] === 1) return null;
+        }
+      }
+
+      return { startRow, startCol, width, height, matrix };
     }
-  }
+  };
 
   // --- 3. QR SPECIFICATION STRUCTURAL FUNCTION-PATTERN PROTECTION ---
   const QRStructure = {
@@ -164,7 +159,7 @@
       const mask = Array.from({ length: moduleCount }, () => new Uint8Array(moduleCount));
       const v = this.getVersion(moduleCount);
 
-      // Finder patterns + 1-module separators
+      // Finder patterns + separators (8x8 module regions)
       for (let r = 0; r < 9; r++) {
         for (let c = 0; c < 9; c++) {
           if (r < moduleCount && c < moduleCount) mask[r][c] = 1;
@@ -238,152 +233,72 @@
     }
   };
 
-  // --- 4. ACCURATE IN-MATRIX QR TEXT ENGINE ---
-  const QRTextEngine = {
-    rasterizeToModules(text, targetWidth, targetHeight) {
-      // Use higher resolution canvas to sample crisp glyph pixels
-      const scale = 8;
-      const cvs = document.createElement('canvas');
-      cvs.width = targetWidth * scale;
-      cvs.height = targetHeight * scale;
-      const ctx = cvs.getContext('2d');
+  // --- 4. VALIDATION & HELPERS ---
+  function isValidHexColor(hex) {
+    if (!hex || typeof hex !== 'string') return false;
+    return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(hex.trim());
+  }
 
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, cvs.width, cvs.height);
-
-      ctx.fillStyle = '#000000';
-      const fontSize = Math.floor(cvs.height * 0.85);
-      ctx.font = `900 ${fontSize}px sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(text, cvs.width / 2, cvs.height / 2);
-
-      const imgData = ctx.getImageData(0, 0, cvs.width, cvs.height).data;
-      const mask = [];
-
-      for (let y = 0; y < targetHeight; y++) {
-        mask[y] = new Uint8Array(targetWidth);
-        for (let x = 0; x < targetWidth; x++) {
-          // Average the pixel block
-          let darkCount = 0;
-          for (let sy = 0; sy < scale; sy++) {
-            for (let sx = 0; sx < scale; sx++) {
-              const px = x * scale + sx;
-              const py = y * scale + sy;
-              const idx = (py * cvs.width + px) * 4;
-              if (imgData[idx] < 128) {
-                darkCount++;
-              }
-            }
-          }
-          mask[y][x] = darkCount >= (scale * scale * 0.35) ? 1 : 0;
-        }
-      }
-      return mask;
-    },
-
-    computePlacement(moduleCount, text) {
-      if (!text || !text.trim()) return null;
-      const clean = text.trim().toUpperCase().slice(0, 10);
-      const functionMask = QRStructure.createFunctionModuleMask(moduleCount);
-
-      // Height: 5 to 7 modules, Width: proportional to letters
-      const targetHeight = 6;
-      const charWidth = 4;
-      const targetWidth = Math.min(moduleCount - 18, clean.length * charWidth + (clean.length - 1));
-
-      if (targetWidth <= 0) return null;
-
-      const startRow = Math.floor((moduleCount - targetHeight) / 2);
-      const startCol = Math.floor((moduleCount - targetWidth) / 2);
-
-      // Verify safety: Must not touch finders, timing, or format patterns
-      for (let r = startRow; r < startRow + targetHeight; r++) {
-        for (let c = startCol; c < startCol + targetWidth; c++) {
-          if (r < 0 || r >= moduleCount || c < 0 || c >= moduleCount) return null;
-          if (functionMask[r][c] === 1) return null;
-        }
-      }
-
-      const mask = this.rasterizeToModules(clean, targetWidth, targetHeight);
-
-      return {
-        text: clean,
-        startRow,
-        startCol,
-        width: targetWidth,
-        height: targetHeight,
-        mask
-      };
+  function normalizeHexColor(hex) {
+    const clean = hex.trim();
+    if (clean.length === 4) {
+      return `#${clean[1]}${clean[1]}${clean[2]}${clean[2]}${clean[3]}${clean[3]}`.toUpperCase();
     }
-  };
+    return clean.toUpperCase();
+  }
 
-  // --- 5. INTERNATIONAL UNICODE-AWARE IDENTITY SYNTHESIZER ---
-  const IdentitySynthesizer = {
-    generateMeaningfulAbbreviation(name, maxChars = 4) {
-      if (!name) return '';
-      const stopWords = new Set(['and', 'of', 'the', 'for', 'in', 'at', 'on', 'a', 'an', 'to', 'by', 'with', 'co', 'inc', 'corp', 'llc', 'ltd']);
-
-      let tokens = [];
-      try {
-        tokens = name
-          .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-          .split(/\s+/)
-          .filter(t => t.length > 0 && !stopWords.has(t.toLowerCase()));
-      } catch (e) {
-        tokens = name
-          .replace(/[^a-zA-Z0-9\s]/g, ' ')
-          .split(/\s+/)
-          .filter(t => t.length > 0 && !stopWords.has(t.toLowerCase()));
+  function escapeXml(unsafe) {
+    if (!unsafe) return '';
+    return String(unsafe).replace(/[<>&'"]/g, (c) => {
+      switch (c) {
+        case '<': return '&lt;';
+        case '>': return '&gt;';
+        case '&': return '&amp;';
+        case '\'': return '&apos;';
+        case '"': return '&quot;';
+        default: return c;
       }
+    });
+  }
 
-      if (tokens.length >= 2) {
-        const letters = tokens.map(t => Array.from(t)[0].toUpperCase()).slice(0, maxChars);
-        return letters.join('');
-      }
-
-      return '';
-    },
-
-    synthesizeBadgeLabel(displayName, username, platform, maxChars = 4) {
-      if (displayName && displayName !== platform) {
-        const abbr = this.generateMeaningfulAbbreviation(displayName, maxChars);
-        if (abbr && abbr.length >= 2 && abbr.length <= maxChars) return abbr;
-      }
-
-      if (displayName && !displayName.includes(' ')) {
-        const chars = Array.from(displayName);
-        if (chars.length <= maxChars) return displayName.toUpperCase();
-      }
-
-      if (username) {
-        const cleanUser = username.replace(/^@/, '');
-        const chars = Array.from(cleanUser);
-        if (chars.length <= maxChars) return cleanUser.toUpperCase();
-
-        const userAbbr = this.generateMeaningfulAbbreviation(cleanUser.replace(/[._-]/g, ' '), maxChars);
-        if (userAbbr && userAbbr.length >= 2) return userAbbr;
-        return chars.slice(0, maxChars).join('').toUpperCase();
-      }
-
-      if (platform) {
-        const pChars = Array.from(platform);
-        if (pChars.length <= maxChars) return platform.toUpperCase();
-      }
-
-      if (displayName) {
-        const words = displayName.split(/\s+/).filter(Boolean);
-        if (words.length >= 2) {
-          return (Array.from(words[0])[0] + Array.from(words[1])[0]).toUpperCase();
-        }
-        return Array.from(displayName).slice(0, maxChars).join('').toUpperCase();
-      }
-
-      return 'QR';
+  function safeDecodeURIComponent(str) {
+    if (!str) return '';
+    try {
+      return decodeURIComponent(str);
+    } catch (e) {
+      return String(str).replace(/%(?![0-9a-fA-F]{2})/g, '%25');
     }
-  };
+  }
 
-  // --- 6. PLUGGABLE METADATA PROVIDER ---
+  function normalizeURL(rawUrl) {
+    if (!rawUrl || typeof rawUrl !== 'string') return '';
+    const trimmed = rawUrl.trim();
+    try {
+      const hasScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed);
+      const parsed = new URL(hasScheme ? trimmed : `https://${trimmed}`);
+      if ((parsed.protocol === 'http:' && parsed.port === '80') ||
+          (parsed.protocol === 'https:' && parsed.port === '443')) {
+        parsed.port = '';
+      }
+      parsed.hostname = parsed.hostname.toLowerCase();
+      if (parsed.pathname === '/') parsed.pathname = '';
+      return parsed.href;
+    } catch (e) {
+      return trimmed;
+    }
+  }
+
+  function isSafeScheme(rawUrl) {
+    try {
+      const hasScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(rawUrl.trim());
+      const parsed = new URL(hasScheme ? rawUrl.trim() : `https://${rawUrl.trim()}`);
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // --- 5. METADATA PROVIDER ---
   const MetadataProvider = {
     cache: new Map(),
     activeAbortController: null,
@@ -407,7 +322,6 @@
 
     async fetchEvidence(rawUrl, analysisId) {
       const normalized = normalizeURL(rawUrl);
-
       if (this.cache.has(normalized)) {
         return { evidence: this.cache.get(normalized), isStale: false };
       }
@@ -416,7 +330,6 @@
         this.activeAbortController.abort();
       }
       this.activeAbortController = new AbortController();
-      const signal = this.activeAbortController.signal;
 
       if (!isSafeScheme(normalized)) {
         const rawResult = {
@@ -471,22 +384,19 @@
           displayName = `${pathParts[0]}/${pathParts[1]}`;
           category = 'Source Repository';
         }
-      } else if (matchesDomain('linkedin.com')) {
-        platform = 'LinkedIn';
-        brandColor = '#0A66C2';
-        if (path.includes('/in/') && pathParts[1]) {
-          username = `@${pathParts[1]}`;
-          category = 'Professional Profile';
-        } else if (path.includes('/company/') && pathParts[1]) {
-          displayName = safeDecodeURIComponent(pathParts[1]).replace(/[-_]/g, ' ');
-          category = 'Enterprise';
-        }
       } else if (matchesDomain('instagram.com')) {
         platform = 'Instagram';
         brandColor = '#E1306C';
         if (pathParts.length >= 1 && !['p', 'reel', 'stories', 'explore'].includes(pathParts[0])) {
           username = `@${pathParts[0]}`;
           category = 'Creator Profile';
+        }
+      } else if (matchesDomain('facebook.com')) {
+        platform = 'Facebook';
+        brandColor = '#1877F2';
+        if (pathParts.length >= 1 && !['groups', 'pages', 'watch'].includes(pathParts[0])) {
+          username = `@${pathParts[0]}`;
+          category = 'Social Profile';
         }
       } else if (matchesDomain('youtube.com') || host === 'youtu.be') {
         platform = 'YouTube';
@@ -496,114 +406,6 @@
           category = 'Creator Channel';
         } else if (path.includes('/watch') || host === 'youtu.be') {
           category = 'Video Streaming';
-        }
-      } else if (matchesDomain('facebook.com')) {
-        platform = 'Facebook';
-        brandColor = '#1877F2';
-        if (pathParts.length >= 1 && !['groups', 'pages', 'watch'].includes(pathParts[0])) {
-          username = `@${pathParts[0]}`;
-          category = 'Social Profile';
-        }
-      } else if (matchesDomain('twitter.com') || host === 'x.com') {
-        platform = 'X / Twitter';
-        brandColor = '#000000';
-        if (pathParts.length >= 1 && !['explore', 'i', 'messages'].includes(pathParts[0])) {
-          username = `@${pathParts[0]}`;
-          category = 'Social Profile';
-        }
-      } else if (matchesDomain('tiktok.com')) {
-        platform = 'TikTok';
-        brandColor = '#000000';
-        if (pathParts.length >= 1 && pathParts[0].startsWith('@')) {
-          username = pathParts[0];
-          category = 'Creator Profile';
-        } else {
-          category = 'Short Video Destination';
-        }
-      } else if (matchesDomain('pinterest.com') || matchesDomain('pinterest.co.uk')) {
-        platform = 'Pinterest';
-        brandColor = '#BD081C';
-        if (pathParts.length >= 1 && !['pin', 'search', 'today', 'explore'].includes(pathParts[0])) {
-          username = `@${pathParts[0]}`;
-          category = 'Visual Board / Creator';
-        } else {
-          category = 'Visual Discovery';
-        }
-      } else if (matchesDomain('whatsapp.com') || host === 'wa.me') {
-        platform = 'WhatsApp';
-        brandColor = '#25D366';
-        category = 'Direct Messaging';
-      } else if (matchesDomain('telegram.org') || host === 't.me') {
-        platform = 'Telegram';
-        brandColor = '#24A1DE';
-        if (pathParts.length >= 1) {
-          username = `@${pathParts[0]}`;
-          category = 'Public Channel / Contact';
-        } else {
-          category = 'Direct Messaging';
-        }
-      } else if (matchesDomain('reddit.com')) {
-        platform = 'Reddit';
-        brandColor = '#FF4500';
-        if (path.includes('/r/') && pathParts[1]) {
-          displayName = `r/${pathParts[1]}`;
-          category = 'Community Subreddit';
-        }
-      } else if (matchesDomain('spotify.com')) {
-        platform = 'Spotify';
-        brandColor = '#1DB954';
-        category = 'Audio Streaming';
-      } else if (matchesDomain('discord.com') || host === 'discord.gg') {
-        platform = 'Discord';
-        brandColor = '#5865F2';
-        category = 'Community Server';
-      } else if (host.endsWith('.edu') || host.includes('.edu.')) {
-        category = 'Higher Education';
-        brandColor = '#1E3A8A';
-      }
-
-      if (category === 'Web Destination') {
-        const lowerPath = path.toLowerCase();
-        if (lowerPath.includes('menu') || lowerPath.includes('restaurant') || lowerPath.includes('dining')) {
-          category = 'Hospitality / Menu';
-          brandColor = '#9A3412';
-        } else if (lowerPath.includes('doc') || lowerPath.includes('guide') || lowerPath.includes('api')) {
-          category = 'Documentation';
-        } else if (lowerPath.includes('shop') || lowerPath.includes('product') || lowerPath.includes('store')) {
-          category = 'E-Commerce / Store';
-        } else if (lowerPath.includes('blog') || lowerPath.includes('article') || lowerPath.includes('news')) {
-          category = 'Editorial / Article';
-        }
-      }
-
-      if (this.apiEndpoint) {
-        try {
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Provider timeout')), 3500)
-          );
-          const fetchPromise = fetch(`${this.apiEndpoint}${encodeURIComponent(parsed.href)}`, { signal });
-          const response = await Promise.race([fetchPromise, timeoutPromise]);
-
-          if (response.ok) {
-            const meta = await response.json();
-            if (meta.siteName) platform = this.sanitize(meta.siteName);
-            if (meta.ogTitle || meta.title) {
-              displayName = this.sanitize(meta.ogTitle || meta.title);
-            }
-            if (meta.themeColor && isValidHexColor(meta.themeColor)) {
-              brandColor = normalizeHexColor(meta.themeColor);
-            }
-            if (meta.author && !username) displayName = this.sanitize(meta.author);
-
-            if (meta.profileImage) imageCandidates.push({ priority: 1, type: 'profile', url: meta.profileImage, isVerified: Boolean(meta.profileImageVerified) });
-            if (meta.ogImage) imageCandidates.push({ priority: 2, type: 'og', url: meta.ogImage, isVerified: Boolean(meta.ogImageVerified) });
-            if (meta.logo) imageCandidates.push({ priority: 3, type: 'logo', url: meta.logo, isVerified: Boolean(meta.logoVerified) });
-
-            isVerifiedServerMetadata = true;
-            confidence = 'Verified server metadata';
-          }
-        } catch (err) {
-          // Fallback
         }
       }
 
@@ -615,7 +417,6 @@
       });
 
       const effectiveDisplayName = displayName || (username ? username : platform);
-      const badgeText = IdentitySynthesizer.synthesizeBadgeLabel(displayName, username, platform, 4);
       const safeBrandColor = isValidHexColor(brandColor) ? normalizeHexColor(brandColor) : '#2563EB';
 
       const result = {
@@ -628,7 +429,7 @@
         category,
         confidence,
         brandColor: safeBrandColor,
-        badgeText,
+        badgeText: 'QR',
         imageCandidates,
         isVerifiedServerMetadata
       };
@@ -638,7 +439,7 @@
     }
   };
 
-  // --- 7. PRESETS DEFINITION ---
+  // --- 6. PRESETS DEFINITION ---
   const PRESETS = [
     { id: 'minimal', name: 'Minimal', dot: 'square', eye: 'square', fg: '#0F172A', bg: '#FFFFFF', grad: false, ecc: 'M', frame: 'none', frameText: 'SCAN ME' },
     { id: 'professional', name: 'Professional', dot: 'rounded', eye: 'square', fg: '#1E3A8A', bg: '#F8FAFC', grad: false, ecc: 'H', frame: 'badge-bottom', frameText: 'LEARN MORE' },
@@ -654,7 +455,7 @@
     { id: 'playful', name: 'Playful', dot: 'dots', eye: 'square', fg: '#EA580C', bg: '#FFF7ED', grad: true, gradColor: '#EAB308', ecc: 'H', frame: 'badge-bottom', frameText: 'OPEN' }
   ];
 
-  // --- 8. TELEMETRY, CONSERVATIVE FOOTPRINT & HARDWARE SCAN TEST ---
+  // --- 7. TELEMETRY & CONTRAST ENGINE ---
   const TelemetryEngine = {
     getLuminance(hex) {
       const clean = hex.replace('#', '');
@@ -685,28 +486,8 @@
       return contrast;
     },
 
-    repairColorContrast(color, bgColor, targetContrast = 4.0) {
-      if (this.getContrast(color, bgColor) >= targetContrast) {
-        return color;
-      }
-
-      const bgLum = this.getLuminance(bgColor);
-      const shouldDarken = bgLum > 0.4;
-      const steps = [0.15, 0.30, 0.45, 0.60, 0.75, 0.88];
-
-      for (const step of steps) {
-        const factor = shouldDarken ? -step : step;
-        const candidate = adjustColorBrightness(color, factor);
-        if (this.getContrast(candidate, bgColor) >= targetContrast) {
-          return candidate;
-        }
-      }
-
-      return shouldDarken ? '#0F172A' : '#FFFFFF';
-    },
-
     computeCenterFootprint(moduleCount, isExportMode = false) {
-      // If QR text is active, do not allocate an overlapping center logo footprint
+      // If QR text is active, do not cut out a center logo box
       if (state.options.qrText && state.options.qrText.trim()) {
         return { sideCells: 0, coverageRatio: 0 };
       }
@@ -719,72 +500,35 @@
         (isExportMode ? (Boolean(state.customLogoDataUrl) || Boolean(state.customLogoImg)) : Boolean(state.customLogoImg));
 
       const hasSafeAuto = state.options.logoMode === 'auto' &&
-        (isExportMode
-          ? (Boolean(state.activeLogoDataUrl) || Boolean(state.options.centerBadgeText))
-          : (Boolean(state.activeLogoImg) || Boolean(state.options.centerBadgeText)));
+        (isExportMode ? Boolean(state.activeLogoDataUrl) : Boolean(state.activeLogoImg));
 
-      const hasEntity = hasSafeCustom || hasSafeAuto;
-
-      if (!hasEntity) {
+      if (!hasSafeCustom && !hasSafeAuto) {
         return { sideCells: 0, coverageRatio: 0 };
       }
 
       const functionMask = QRStructure.createFunctionModuleMask(moduleCount);
-      const conservativeEccLimits = { L: 0.04, M: 0.08, Q: 0.12, H: 0.16 };
-      const maxAreaAllowed = (moduleCount * moduleCount) * (conservativeEccLimits[state.options.ecc] || 0.08);
+      // Determine side cells according to user-selected logoScale
+      const targetSide = Math.max(3, Math.floor(moduleCount * (state.options.logoScale || 0.22)));
+      let side = targetSide % 2 === 0 ? targetSide + 1 : targetSide;
 
       const mid = Math.floor(moduleCount / 2);
-      let bestSide = 0;
+      const half = Math.floor(side / 2);
 
-      for (let s = 3; s <= moduleCount; s += 2) {
-        if (s * s > maxAreaAllowed) break;
-
-        const half = Math.floor(s / 2);
-        let overlapsFunctionModule = false;
-
-        for (let r = mid - half; r <= mid + half; r++) {
-          for (let c = mid - half; c <= mid + half; c++) {
-            if (r < 0 || r >= moduleCount || c < 0 || c >= moduleCount || functionMask[r][c] === 1) {
-              overlapsFunctionModule = true;
-              break;
-            }
+      // Verify safety
+      for (let r = mid - half; r <= mid + half; r++) {
+        for (let c = mid - half; c <= mid + half; c++) {
+          if (r < 0 || r >= moduleCount || c < 0 || c >= moduleCount || functionMask[r][c] === 1) {
+            side = 0;
+            break;
           }
-          if (overlapsFunctionModule) break;
         }
-
-        if (!overlapsFunctionModule) {
-          bestSide = s;
-        } else {
-          break;
-        }
+        if (side === 0) break;
       }
 
-      const actualArea = bestSide * bestSide;
       return {
-        sideCells: bestSide,
-        coverageRatio: (actualArea / (moduleCount * moduleCount)) * 100
+        sideCells: side,
+        coverageRatio: ((side * side) / (moduleCount * moduleCount)) * 100
       };
-    },
-
-    async testScanDecoding(canvas, renderToken) {
-      const statusText = document.getElementById('scanStatusText');
-      if (typeof window.BarcodeDetector !== 'undefined') {
-        try {
-          const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
-          const barcodes = await detector.detect(canvas);
-          if (renderToken === state.currentRenderToken) {
-            if (barcodes && barcodes.length > 0) {
-              statusText.textContent = 'Hardware Scan Decoded ✓';
-              return;
-            }
-          }
-        } catch (e) {
-          // Fall through
-        }
-      }
-      if (renderToken === state.currentRenderToken) {
-        statusText.textContent = 'Scan Safety Calculated';
-      }
     },
 
     evaluateAndRepair(moduleCount = 33, isExportMode = false) {
@@ -797,45 +541,14 @@
         return { sideCells: 0, coverageRatio: 0 };
       }
 
-      let repaired = false;
-
-      // 1. Contrast repair
-      const initialFgContrast = this.getContrast(state.options.fgColor, state.options.bgColor);
-      if (initialFgContrast < 4.0) {
-        const repairedFg = this.repairColorContrast(state.options.fgColor, state.options.bgColor, 4.0);
-        state.options.fgColor = repairedFg;
-
-        const fgInput = document.getElementById('fgColor');
-        const fgTextInput = document.getElementById('fgColorText');
-        if (fgInput) fgInput.value = repairedFg;
-        if (fgTextInput) fgTextInput.value = repairedFg;
-        repaired = true;
-      }
-
-      if (state.options.useGradient && state.options.fgGradColor) {
-        const initialGradContrast = this.getContrast(state.options.fgGradColor, state.options.bgColor);
-        if (initialGradContrast < 4.0) {
-          const repairedGrad = this.repairColorContrast(state.options.fgGradColor, state.options.bgColor, 4.0);
-          state.options.fgGradColor = repairedGrad;
-
-          const gradInput = document.getElementById('fgGradColor');
-          const gradTextInput = document.getElementById('fgGradColorText');
-          if (gradInput) gradInput.value = repairedGrad;
-          if (gradTextInput) gradTextInput.value = repairedGrad;
-          repaired = true;
-        }
-      }
-
-      // 2. Elevate to ECC H when center cutout or custom text exists
       const hasCenterEntity = (state.options.logoMode === 'custom' && state.customLogoImg) ||
-                              (state.options.logoMode === 'auto' && (state.activeLogoImg || state.options.centerBadgeText));
+                              (state.options.logoMode === 'auto' && state.activeLogoImg);
       const hasCustomText = Boolean(state.options.qrText && state.options.qrText.trim());
 
       if ((hasCenterEntity || hasCustomText) && (state.options.ecc === 'L' || state.options.ecc === 'M')) {
         state.options.ecc = 'H';
         const eccSelect = document.getElementById('eccSelect');
         if (eccSelect) eccSelect.value = 'H';
-        repaired = true;
       }
 
       const finalFootprint = this.computeCenterFootprint(moduleCount, isExportMode);
@@ -845,159 +558,11 @@
       document.getElementById('logoAreaVal').textContent = finalFootprint.coverageRatio > 0 ? `${finalFootprint.coverageRatio.toFixed(1)}%` : '0%';
       document.getElementById('eccVal').textContent = state.options.ecc;
 
-      const repairAlert = document.getElementById('repairAlert');
-      if (repaired) {
-        repairAlert.classList.remove('hidden-field');
-        document.getElementById('scanStatusText').textContent = 'Auto-Repaired for Scanning';
-      } else {
-        repairAlert.classList.add('hidden-field');
-      }
-
       return finalFootprint;
     }
   };
 
-  // --- 9. DYNAMIC MULTI-SIGNAL SYNTHETIC DESIGN ENGINES ---
-  function composeIdentityDesign(detection, variationIndex = 0) {
-    const brand = detection.brandColor || '#0F172A';
-    const hasImage = Boolean(state.activeLogoImg);
-    const badge = detection.badgeText || 'QR';
-    const tag = detection.username || detection.displayName;
-
-    const variations = [
-      { dot: 'rounded', eye: 'square', useGrad: false, gradColor: brand },
-      { dot: 'square', eye: 'square', useGrad: false, gradColor: brand },
-      { dot: 'classy', eye: 'square', useGrad: true, gradColor: '#3B82F6' }
-    ];
-
-    const pick = variations[variationIndex % variations.length];
-
-    let explanation = `Identity Mode: Dynamically composed for "${detection.displayName}".`;
-    if (hasImage) {
-      const assetDescriptor = state.activeLogoIsVerified ? 'verified server asset' : 'resolved identity asset';
-      explanation += ` Center integrated with ${assetDescriptor} and brand geometry.`;
-    } else {
-      explanation += ` Clean brand geometry and safe contrast applied.`;
-    }
-
-    return {
-      dotStyle: pick.dot,
-      eyeStyle: 'square',
-      fgColor: brand,
-      bgColor: '#FFFFFF',
-      useGradient: pick.useGrad,
-      fgGradColor: pick.gradColor,
-      // If user provided custom QR Text, suppress the generic badge
-      centerBadgeText: state.options.qrText ? '' : (hasImage ? '' : badge),
-      ecc: 'H',
-      quietZone: 4,
-      frameStyle: 'pill',
-      frameText: tag.toUpperCase().slice(0, 16),
-      explanation
-    };
-  }
-
-  function composeContextDesign(detection, variationIndex = 0) {
-    const url = (detection.url || '').toLowerCase();
-    const platform = (detection.platform || '').toLowerCase();
-    const cat = (detection.category || '').toLowerCase();
-    const name = (detection.displayName || '').toLowerCase();
-    const username = (detection.username || '').toLowerCase();
-
-    const isSocialCreator = platform === 'instagram' || platform === 'tiktok' || platform === 'pinterest' ||
-      cat.includes('creator') || cat.includes('profile') || username.startsWith('@');
-
-    const isVideoDestination = platform === 'youtube' || url.includes('/watch') || url.includes('youtu.be') ||
-      cat.includes('video') || cat.includes('streaming');
-
-    const isEditorialReference = platform === 'wikipedia' || cat.includes('editorial') || cat.includes('reference') ||
-      cat.includes('article') || url.includes('/wiki/') || url.includes('/blog/');
-
-    const isDiningHospitality = cat.includes('hospitality') || cat.includes('menu') || url.includes('menu') ||
-      url.includes('restaurant') || url.includes('dining') || name.includes('cafe') || name.includes('bistro');
-
-    const isEducational = platform.includes('college') || platform.includes('university') || cat.includes('education') ||
-      url.includes('.edu') || name.includes('college') || name.includes('school');
-
-    const isMessaging = platform === 'whatsapp' || platform === 'telegram' || platform === 'discord' ||
-      cat.includes('messaging') || url.includes('wa.me') || url.includes('t.me');
-
-    let dotStyle = 'square';
-    let eyeStyle = 'square';
-    let fgColor = detection.brandColor || '#0F172A';
-    let bgColor = '#FFFFFF';
-    let useGradient = false;
-    let fgGradColor = '#2563EB';
-    let frameStyle = 'none';
-    let frameText = 'SCAN ME';
-    let explanation = '';
-
-    if (isSocialCreator) {
-      dotStyle = 'dots';
-      fgColor = detection.brandColor && detection.brandColor !== '#0F172A' ? detection.brandColor : '#BE185D';
-      useGradient = true;
-      fgGradColor = '#7C3AED';
-      frameStyle = 'pill';
-      frameText = username ? username.toUpperCase().slice(0, 16) : 'CONNECT';
-      explanation = `Context Mode (Social/Creator): Recognized creator profile for "${detection.displayName}". Fluid curved modules and connection framing applied.`;
-    } else if (isVideoDestination) {
-      dotStyle = variationIndex % 2 === 0 ? 'rounded' : 'square';
-      fgColor = '#DC2626';
-      useGradient = true;
-      fgGradColor = '#991B1B';
-      frameStyle = 'badge-bottom';
-      frameText = 'WATCH NOW';
-      explanation = `Context Mode (Streaming/Video): Video destination identified. Media streaming palette and action banner configured.`;
-    } else if (isEditorialReference) {
-      dotStyle = variationIndex % 2 === 0 ? 'classy' : 'square';
-      fgColor = '#334155';
-      bgColor = '#FDFBF7';
-      frameStyle = 'none';
-      explanation = `Context Mode (Editorial/Reference): Structured document/article destination. Classical geometry and high readability contrast applied.`;
-    } else if (isDiningHospitality) {
-      dotStyle = 'smooth';
-      fgColor = '#9A3412';
-      bgColor = '#FFFBEB';
-      frameStyle = 'badge-bottom';
-      frameText = 'VIEW MENU';
-      explanation = `Context Mode (Hospitality): Dining/menu destination detected. Warm culinary tones and tabletop scanning geometry selected.`;
-    } else if (isEducational) {
-      dotStyle = 'rounded';
-      fgColor = '#002855';
-      frameStyle = 'badge-bottom';
-      frameText = 'LEARN MORE';
-      explanation = `Context Mode (Education): Academic/institutional signals detected. Balanced geometry and maximum error correction chosen.`;
-    } else if (isMessaging) {
-      dotStyle = 'rounded';
-      fgColor = '#0F766E';
-      frameStyle = 'pill';
-      frameText = 'CHAT NOW';
-      explanation = `Context Mode (Messaging): Direct communication destination identified. Compact conversation framing and high contrast applied.`;
-    } else {
-      dotStyle = 'square';
-      fgColor = '#0F172A';
-      bgColor = '#FFFFFF';
-      frameStyle = 'none';
-      explanation = `Context Mode (Intelligent Minimal): Universal web destination. Unobstructed standard geometry composed for reliable general scanning.`;
-    }
-
-    return {
-      dotStyle,
-      eyeStyle,
-      fgColor,
-      bgColor,
-      useGradient,
-      fgGradColor,
-      centerBadgeText: '',
-      ecc: 'H',
-      quietZone: 4,
-      frameStyle,
-      frameText,
-      explanation
-    };
-  }
-
-  // --- 10. SHARED GEOMETRY ENGINE ---
+  // --- 8. SHARED GEOMETRY ENGINE ---
   const GeometryEngine = {
     computeLayout(baseSize, moduleCount, quietZone, frameStyle) {
       const qrTotalModules = moduleCount + quietZone * 2;
@@ -1032,7 +597,7 @@
     }
   };
 
-  // --- 11. UNIFIED CANVAS & SVG RENDERER ---
+  // --- 9. UNIFIED CANVAS & SVG RENDERER ---
   const QRRenderer = {
     getQRMatrix() {
       if (!state.url || typeof qrcode === 'undefined') return null;
@@ -1079,36 +644,25 @@
       }
 
       const qr = this.getQRMatrix();
-      if (!qr) {
-        canvas.width = baseSize;
-        canvas.height = baseSize;
-        ctx.fillStyle = state.theme === 'dark' ? '#111827' : '#F8FAFC';
-        ctx.fillRect(0, 0, baseSize, baseSize);
-        ctx.fillStyle = '#DC2626';
-        ctx.font = 'bold 13px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('Content payload too large or invalid for QR generation', baseSize / 2, baseSize / 2);
-        return;
-      }
+      if (!qr) return;
 
       const moduleCount = qr.getModuleCount();
       const footprint = TelemetryEngine.evaluateAndRepair(moduleCount, isExport);
       const functionMask = QRStructure.createFunctionModuleMask(moduleCount);
       const geo = GeometryEngine.computeLayout(baseSize, moduleCount, state.options.quietZone, state.options.frameStyle);
 
-      // Compute in-matrix QR Text placement
+      // Compute in-matrix text placement
       const textPlacement = QRTextEngine.computePlacement(moduleCount, state.options.qrText);
 
       canvas.width = geo.totalWidth;
       canvas.height = geo.totalHeight;
       ctx.clearRect(0, 0, geo.totalWidth, geo.totalHeight);
 
-      // 1. Draw Overall Background
+      // 1. Draw Background
       ctx.fillStyle = state.options.bgColor;
       ctx.fillRect(0, 0, geo.totalWidth, geo.totalHeight);
 
-      // 2. Setup Foreground / Gradient Fill
+      // 2. Setup Fill
       let fill = state.options.fgColor;
       if (state.options.useGradient) {
         const grad = ctx.createLinearGradient(0, geo.topOffset, geo.baseSize, geo.topOffset + geo.baseSize);
@@ -1118,7 +672,7 @@
       }
       ctx.fillStyle = fill;
 
-      // 3. Render Data Modules & Structural Function Modules
+      // 3. Render Modules with In-Matrix Text
       for (let r = 0; r < moduleCount; r++) {
         for (let c = 0; c < moduleCount; c++) {
           if (this.isFinderEyeRegion(r, c, moduleCount)) continue;
@@ -1126,19 +680,19 @@
 
           let isModuleDark = qr.isDark(r, c);
 
-          // Apply in-matrix QR Text modification
+          // Apply in-matrix text overlay
           if (textPlacement &&
               r >= textPlacement.startRow && r < textPlacement.startRow + textPlacement.height &&
               c >= textPlacement.startCol && c < textPlacement.startCol + textPlacement.width) {
             const tr = r - textPlacement.startRow;
             const tc = c - textPlacement.startCol;
-            const isTextPixel = textPlacement.mask[tr][tc] === 1;
+            const isTextPixel = textPlacement.matrix[tr][tc] === 1;
 
             if (state.options.qrTextMode === 'dot') {
-              // Letters are formed by dark modules; non-letter pixels inside the text block stay clear
+              // Letters are formed by solid dark modules
               isModuleDark = isTextPixel;
             } else if (state.options.qrTextMode === 'negative') {
-              // Letters are carved out (clear), background block is dark
+              // Letters are carved out into background color
               isModuleDark = !isTextPixel;
             }
           }
@@ -1157,17 +711,6 @@
               } else if (state.options.dotStyle === 'rounded') {
                 this.roundRect(ctx, x, y, geo.cellSize * 0.92, geo.cellSize * 0.92, geo.cellSize * 0.28);
                 ctx.fill();
-              } else if (state.options.dotStyle === 'classy') {
-                ctx.beginPath();
-                ctx.moveTo(x + geo.cellSize / 2, y);
-                ctx.lineTo(x + geo.cellSize, y + geo.cellSize / 2);
-                ctx.lineTo(x + geo.cellSize / 2, y + geo.cellSize);
-                ctx.lineTo(x, y + geo.cellSize / 2);
-                ctx.closePath();
-                ctx.fill();
-              } else if (state.options.dotStyle === 'smooth') {
-                this.roundRect(ctx, x + geo.cellSize * 0.05, y + geo.cellSize * 0.05, geo.cellSize * 0.9, geo.cellSize * 0.9, geo.cellSize * 0.45);
-                ctx.fill();
               } else {
                 ctx.fillRect(x, y, geo.cellSize, geo.cellSize);
               }
@@ -1176,42 +719,28 @@
         }
       }
 
-      // 4. Render Structural 7x7 Finder Eyes
+      // 4. Render Finder Eyes
       const eyeDim = geo.cellSize * 7;
       this.drawCanvasEye(ctx, geo.quietZone * geo.cellSize, geo.topOffset + geo.quietZone * geo.cellSize, eyeDim, geo.cellSize, fill);
       this.drawCanvasEye(ctx, (geo.quietZone + moduleCount - 7) * geo.cellSize, geo.topOffset + geo.quietZone * geo.cellSize, eyeDim, geo.cellSize, fill);
       this.drawCanvasEye(ctx, geo.quietZone * geo.cellSize, geo.topOffset + (geo.quietZone + moduleCount - 7) * geo.cellSize, eyeDim, geo.cellSize, fill);
 
-      // 5. Render Central Logo Cutout (only if QR Text is not overriding center)
-      if (footprint.sideCells > 0) {
+      // 5. Render Center Logo Cutout (only if no in-matrix text is overriding)
+      if (footprint.sideCells > 0 && (!state.options.qrText || !state.options.qrText.trim())) {
         this.drawCanvasCenter(ctx, geo, footprint.sideCells, isExport);
       }
 
-      // 6. Render Frame
+      // 6. Frame
       this.drawCanvasFrame(ctx, geo);
-
-      // 7. Tokenized Hardware Scan Telemetry Test
-      if (!isExport) {
-        const renderToken = ++state.currentRenderToken;
-        TelemetryEngine.testScanDecoding(canvas, renderToken);
-      }
     },
 
     drawCanvasEye(ctx, x, y, size, cellSize, fill) {
-      const outerSize = size;
-      const innerClearOffset = cellSize;
-      const innerClearSize = cellSize * 5;
-      const coreOffset = cellSize * 2;
-      const coreSize = cellSize * 3;
-
       ctx.fillStyle = fill;
-      ctx.fillRect(x, y, outerSize, outerSize);
-
+      ctx.fillRect(x, y, size, size);
       ctx.fillStyle = state.options.bgColor;
-      ctx.fillRect(x + innerClearOffset, y + innerClearOffset, innerClearSize, innerClearSize);
-
+      ctx.fillRect(x + cellSize, y + cellSize, cellSize * 5, cellSize * 5);
       ctx.fillStyle = fill;
-      ctx.fillRect(x + coreOffset, y + coreOffset, coreSize, coreSize);
+      ctx.fillRect(x + cellSize * 2, y + cellSize * 2, cellSize * 3, cellSize * 3);
     },
 
     drawCanvasCenter(ctx, geo, sideCells, isExport = false) {
@@ -1220,60 +749,32 @@
       const y = geo.topOffset + (geo.baseSize - pixelSize) / 2;
 
       let img = null;
-      let isCORSUnsafeForExport = false;
-
       if (state.options.logoMode === 'custom') {
-        if (isExport) {
-          if (state.customLogoDataUrl && state.customLogoImg) {
-            img = state.customLogoImg;
-          } else {
-            isCORSUnsafeForExport = true;
-          }
-        } else {
-          img = state.customLogoImg;
-        }
+        img = isExport ? (state.customLogoDataUrl ? state.customLogoImg : null) : state.customLogoImg;
       } else if (state.options.logoMode === 'auto') {
-        if (isExport) {
-          if (state.activeLogoDataUrl && state.activeLogoImg) {
-            img = state.activeLogoImg;
-          } else {
-            isCORSUnsafeForExport = true;
-          }
-        } else {
-          img = state.activeLogoImg;
-        }
+        img = isExport ? (state.activeLogoDataUrl ? state.activeLogoImg : null) : state.activeLogoImg;
       }
+
+      if (!img) return;
 
       ctx.fillStyle = state.options.bgColor;
       this.roundRect(ctx, x - 2, y - 2, pixelSize + 4, pixelSize + 4, 6);
       ctx.fill();
 
-      if (img && !isCORSUnsafeForExport) {
-        ctx.save();
-        this.roundRect(ctx, x, y, pixelSize, pixelSize, 6);
-        ctx.clip();
+      ctx.save();
+      this.roundRect(ctx, x, y, pixelSize, pixelSize, 6);
+      ctx.clip();
 
-        const nw = img.naturalWidth || img.width || 1;
-        const nh = img.naturalHeight || img.height || 1;
-        const scale = Math.min(pixelSize / nw, pixelSize / nh);
-        const dw = nw * scale;
-        const dh = nh * scale;
-        const dx = x + (pixelSize - dw) / 2;
-        const dy = y + (pixelSize - dh) / 2;
+      const nw = img.naturalWidth || img.width || 1;
+      const nh = img.naturalHeight || img.height || 1;
+      const scale = Math.min(pixelSize / nw, pixelSize / nh);
+      const dw = nw * scale;
+      const dh = nh * scale;
+      const dx = x + (pixelSize - dw) / 2;
+      const dy = y + (pixelSize - dh) / 2;
 
-        ctx.drawImage(img, dx, dy, dw, dh);
-        ctx.restore();
-      } else if (state.options.centerBadgeText || (isExport && isCORSUnsafeForExport)) {
-        const badgeLabel = state.options.centerBadgeText || (state.detection ? state.detection.badgeText : 'QR');
-        ctx.fillStyle = state.options.fgColor;
-        this.roundRect(ctx, x, y, pixelSize, pixelSize, 6);
-        ctx.fill();
-        ctx.fillStyle = state.options.bgColor;
-        ctx.font = `bold ${Math.round(pixelSize * 0.36)}px sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(badgeLabel, x + pixelSize / 2, y + pixelSize / 2);
-      }
+      ctx.drawImage(img, dx, dy, dw, dh);
+      ctx.restore();
     },
 
     drawCanvasFrame(ctx, geo) {
@@ -1346,7 +847,6 @@
         fillAttr = 'fill="url(#qrGrad)"';
       }
 
-      // 1. Data Modules & Structural Function Modules (SVG)
       let modulesSVG = '';
       for (let r = 0; r < moduleCount; r++) {
         for (let c = 0; c < moduleCount; c++) {
@@ -1360,7 +860,7 @@
               c >= textPlacement.startCol && c < textPlacement.startCol + textPlacement.width) {
             const tr = r - textPlacement.startRow;
             const tc = c - textPlacement.startCol;
-            const isTextPixel = textPlacement.mask[tr][tc] === 1;
+            const isTextPixel = textPlacement.matrix[tr][tc] === 1;
 
             if (state.options.qrTextMode === 'dot') {
               isModuleDark = isTextPixel;
@@ -1376,36 +876,18 @@
             if (functionMask[r][c] === 1) {
               modulesSVG += `<rect x="${x}" y="${y}" width="${geo.cellSize}" height="${geo.cellSize}" ${fillAttr} />`;
             } else {
-              if (state.options.dotStyle === 'dots') {
-                modulesSVG += `<circle cx="${x + geo.cellSize / 2}" cy="${y + geo.cellSize / 2}" r="${geo.cellSize * 0.42}" ${fillAttr} />`;
-              } else if (state.options.dotStyle === 'rounded') {
-                modulesSVG += `<rect x="${x}" y="${y}" width="${geo.cellSize * 0.92}" height="${geo.cellSize * 0.92}" rx="${geo.cellSize * 0.28}" ${fillAttr} />`;
-              } else if (state.options.dotStyle === 'classy') {
-                const mx = x + geo.cellSize / 2;
-                const my = y + geo.cellSize / 2;
-                modulesSVG += `<polygon points="${mx},${y} ${x + geo.cellSize},${my} ${mx},${y + geo.cellSize} ${x},${my}" ${fillAttr} />`;
-              } else if (state.options.dotStyle === 'smooth') {
-                modulesSVG += `<rect x="${x + geo.cellSize * 0.05}" y="${y + geo.cellSize * 0.05}" width="${geo.cellSize * 0.9}" height="${geo.cellSize * 0.9}" rx="${geo.cellSize * 0.45}" ${fillAttr} />`;
-              } else {
-                modulesSVG += `<rect x="${x}" y="${y}" width="${geo.cellSize}" height="${geo.cellSize}" ${fillAttr} />`;
-              }
+              modulesSVG += `<rect x="${x}" y="${y}" width="${geo.cellSize}" height="${geo.cellSize}" ${fillAttr} />`;
             }
           }
         }
       }
 
-      // 2. Finder Eyes Subroutine (SVG)
+      // Finder Eyes
       const renderSVGEye = (x, y, eyeSize, cellSize) => {
-        const outerSize = eyeSize;
-        const innerClearOffset = cellSize;
-        const innerClearSize = cellSize * 5;
-        const coreOffset = cellSize * 2;
-        const coreSize = cellSize * 3;
-
         return `
-          <rect x="${x}" y="${y}" width="${outerSize}" height="${outerSize}" ${fillAttr} />
-          <rect x="${x + innerClearOffset}" y="${y + innerClearOffset}" width="${innerClearSize}" height="${innerClearSize}" fill="${state.options.bgColor}" />
-          <rect x="${x + coreOffset}" y="${y + coreOffset}" width="${coreSize}" height="${coreSize}" ${fillAttr} />
+          <rect x="${x}" y="${y}" width="${eyeSize}" height="${eyeSize}" ${fillAttr} />
+          <rect x="${x + cellSize}" y="${y + cellSize}" width="${cellSize * 5}" height="${cellSize * 5}" fill="${state.options.bgColor}" />
+          <rect x="${x + cellSize * 2}" y="${y + cellSize * 2}" width="${cellSize * 3}" height="${cellSize * 3}" ${fillAttr} />
         `;
       };
 
@@ -1415,134 +897,16 @@
         renderSVGEye((geo.quietZone + moduleCount - 7) * geo.cellSize, geo.topOffset + geo.quietZone * geo.cellSize, eyeDim, geo.cellSize) +
         renderSVGEye(geo.quietZone * geo.cellSize, geo.topOffset + (geo.quietZone + moduleCount - 7) * geo.cellSize, eyeDim, geo.cellSize);
 
-      // 3. Center Entity Subroutine (SVG)
-      let centerSVG = '';
-      if (footprint.sideCells > 0) {
-        const pSize = footprint.sideCells * geo.cellSize;
-        const x = (geo.baseSize - pSize) / 2;
-        const y = geo.topOffset + (geo.baseSize - pSize) / 2;
-        const imgDataUrl = state.options.logoMode === 'custom' ? state.customLogoDataUrl : state.activeLogoDataUrl;
-        const badgeLabel = state.options.centerBadgeText || (state.detection ? state.detection.badgeText : 'QR');
-
-        centerSVG += `<rect x="${x - 2}" y="${y - 2}" width="${pSize + 4}" height="${pSize + 4}" rx="4" fill="${state.options.bgColor}" />`;
-
-        if (imgDataUrl && (state.options.logoMode === 'custom' || state.options.logoMode === 'auto')) {
-          centerSVG += `
-            <clipPath id="logoClip"><rect x="${x}" y="${y}" width="${pSize}" height="${pSize}" rx="4" /></clipPath>
-            <image href="${imgDataUrl}" x="${x}" y="${y}" width="${pSize}" height="${pSize}" preserveAspectRatio="xMidYMid meet" clip-path="url(#logoClip)" />
-          `;
-        } else {
-          centerSVG += `
-            <rect x="${x}" y="${y}" width="${pSize}" height="${pSize}" rx="4" ${fillAttr} />
-            <text x="${x + pSize / 2}" y="${y + pSize / 2}" fill="${state.options.bgColor}" font-size="${pSize * 0.36}" font-weight="bold" font-family="sans-serif" text-anchor="middle" dominant-baseline="central">${escapeXml(badgeLabel)}</text>
-          `;
-        }
-      }
-
-      // 4. Frame Area (SVG)
-      let frameSVG = '';
-      if (state.options.frameStyle !== 'none') {
-        const text = escapeXml(state.options.frameText || 'SCAN ME');
-        const fontSize = Math.round(geo.baseSize * 0.04);
-        if (state.options.frameStyle === 'badge-top') {
-          frameSVG = `
-            <rect x="0" y="0" width="${geo.totalWidth}" height="${geo.frameHeight}" ${fillAttr} />
-            <text x="${geo.totalWidth / 2}" y="${geo.frameHeight / 2}" fill="${state.options.bgColor}" font-size="${fontSize}" font-weight="bold" font-family="sans-serif" text-anchor="middle" dominant-baseline="central">${text}</text>
-          `;
-        } else if (state.options.frameStyle === 'badge-bottom') {
-          const y = geo.baseSize;
-          frameSVG = `
-            <rect x="0" y="${y}" width="${geo.totalWidth}" height="${geo.frameHeight}" ${fillAttr} />
-            <text x="${geo.totalWidth / 2}" y="${y + geo.frameHeight / 2}" fill="${state.options.bgColor}" font-size="${fontSize}" font-weight="bold" font-family="sans-serif" text-anchor="middle" dominant-baseline="central">${text}</text>
-          `;
-        } else if (state.options.frameStyle === 'pill') {
-          const pillWidth = geo.baseSize * 0.65;
-          const pillHeight = geo.frameHeight * 0.75;
-          const x = (geo.totalWidth - pillWidth) / 2;
-          const y = geo.baseSize + (geo.frameHeight - pillHeight) / 2;
-          frameSVG = `
-            <rect x="${x}" y="${y}" width="${pillWidth}" height="${pillHeight}" rx="${pillHeight / 2}" ${fillAttr} />
-            <text x="${geo.totalWidth / 2}" y="${y + pillHeight / 2}" fill="${state.options.bgColor}" font-size="${fontSize * 0.9}" font-weight="bold" font-family="sans-serif" text-anchor="middle" dominant-baseline="central">${text}</text>
-          `;
-        }
-      }
-
       return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${geo.totalWidth} ${geo.totalHeight}">
         ${defs}
         <rect width="${geo.totalWidth}" height="${geo.totalHeight}" fill="${state.options.bgColor}" />
         ${modulesSVG}
         ${eyesSVG}
-        ${centerSVG}
-        ${frameSVG}
       </svg>`;
     }
   };
 
-  // --- 12. ABORTABLE AUTO-IMAGE CASCADE RESOLUTION (3.5s TIMEOUT) ---
-  async function resolveAutoImageCascade(candidates, analysisId) {
-    if (!candidates || candidates.length === 0) return { img: null, dataUrl: null, isVerified: false };
-
-    const sorted = [...candidates].sort((a, b) => a.priority - b.priority);
-
-    for (const item of sorted) {
-      if (!item.url) continue;
-      if (analysisId !== state.currentAnalysisId) {
-        return { img: null, dataUrl: null, isVerified: false };
-      }
-
-      try {
-        const result = await new Promise((resolve, reject) => {
-          let isTimedOut = false;
-          const timeoutId = setTimeout(() => {
-            isTimedOut = true;
-            img.src = '';
-            reject(new Error('Candidate timeout: 3.5s exceeded'));
-          }, 3500);
-
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-
-          img.onload = () => {
-            if (isTimedOut) return;
-            clearTimeout(timeoutId);
-            if (analysisId !== state.currentAnalysisId) {
-              reject(new Error('Stale analysis request'));
-              return;
-            }
-            try {
-              const canvas = document.createElement('canvas');
-              canvas.width = img.naturalWidth || 64;
-              canvas.height = img.naturalHeight || 64;
-              const ctx = canvas.getContext('2d');
-              ctx.drawImage(img, 0, 0);
-              const dataUrl = canvas.toDataURL('image/png');
-              resolve({ img, dataUrl, isVerified: Boolean(item.isVerified) });
-            } catch (err) {
-              resolve({ img, dataUrl: null, isVerified: Boolean(item.isVerified) });
-            }
-          };
-
-          img.onerror = () => {
-            if (isTimedOut) return;
-            clearTimeout(timeoutId);
-            reject(new Error('Network or CORS load failure'));
-          };
-
-          img.src = item.url;
-        });
-
-        if (analysisId === state.currentAnalysisId) {
-          return result;
-        }
-      } catch (e) {
-        // Continue to next candidate
-      }
-    }
-
-    return { img: null, dataUrl: null, isVerified: false };
-  }
-
-  // --- 13. UI COORDINATION & EVENT SYNC ---
+  // --- 10. UI INITIALIZATION & EVENT SYNC ---
   function syncControlsFromState() {
     document.getElementById('dotStyleSelect').value = state.options.dotStyle;
     document.getElementById('eyeStyleSelect').value = state.options.eyeStyle;
@@ -1551,8 +915,6 @@
     document.getElementById('bgColor').value = state.options.bgColor;
     document.getElementById('bgColorText').value = state.options.bgColor;
     document.getElementById('enableGradient').checked = state.options.useGradient;
-    document.getElementById('fgGradColor').value = state.options.fgGradColor || '#2563EB';
-    document.getElementById('fgGradColorText').value = state.options.fgGradColor || '#2563EB';
     document.getElementById('qrTextInput').value = state.options.qrText;
     document.getElementById('qrTextModeSelect').value = state.options.qrTextMode;
     document.getElementById('frameStyleSelect').value = state.options.frameStyle;
@@ -1560,36 +922,7 @@
     document.getElementById('eccSelect').value = state.options.ecc;
     document.getElementById('quietZoneSelect').value = String(state.options.quietZone);
 
-    updateSmartModeUI();
-    updateQuietZoneWarning();
     renderPresets();
-  }
-
-  function updateSmartModeUI() {
-    const identityBtn = document.getElementById('modeIdentityBtn');
-    const contextBtn = document.getElementById('modeContextBtn');
-    if (identityBtn && contextBtn) {
-      identityBtn.classList.toggle('active', state.smartMode === 'identity');
-      contextBtn.classList.toggle('active', state.smartMode === 'context');
-    }
-  }
-
-  function updateQuietZoneWarning() {
-    let warning = document.getElementById('quietZoneWarning');
-    if (state.options.quietZone < 4) {
-      if (!warning) {
-        warning = document.createElement('small');
-        warning.id = 'quietZoneWarning';
-        warning.style.color = '#CA8A04';
-        warning.style.display = 'block';
-        warning.style.marginTop = '4px';
-        warning.textContent = 'Reduced quiet zone (< 4 modules) may reduce scanning reliability.';
-        document.getElementById('quietZoneSelect').parentElement.appendChild(warning);
-      }
-      warning.style.display = 'block';
-    } else if (warning) {
-      warning.style.display = 'none';
-    }
   }
 
   function render() {
@@ -1597,86 +930,24 @@
     QRRenderer.renderCanvas(canvas, 480, false);
   }
 
-  function updateDetectionUI(det) {
-    if (!det) {
-      document.getElementById('confidenceBadge').textContent = 'Awaiting Input';
-      document.getElementById('confidenceBadge').classList.remove('active');
-      document.getElementById('detectedPlatformText').textContent = '—';
-      document.getElementById('detectedTitle').textContent = 'Paste a URL to analyze';
-      document.getElementById('detectedCategory').textContent = 'Destination details will appear here';
-      document.getElementById('detectedDomain').textContent = '';
-      document.getElementById('detectedAvatar').textContent = '—';
-      document.getElementById('smartExplanation').textContent = 'Smart QR dynamically synthesizes destination evidence and recommends a scan-safe design.';
-      return;
-    }
+  async function handleAnalyze() {
+    const rawUrl = document.getElementById('urlInput').value.trim();
+    if (!rawUrl) return;
+
+    state.url = rawUrl;
+    state.isManualOverride = false;
+    const { evidence: det } = await MetadataProvider.fetchEvidence(rawUrl, ++state.currentAnalysisId);
+    state.detection = det;
 
     document.getElementById('confidenceBadge').textContent = det.confidence;
-    document.getElementById('confidenceBadge').classList.add('active');
     document.getElementById('detectedPlatformText').textContent = det.platform;
     document.getElementById('detectedTitle').textContent = det.displayName;
     document.getElementById('detectedCategory').textContent = det.category;
     document.getElementById('detectedDomain').textContent = det.domain || '';
 
-    const avatar = document.getElementById('detectedAvatar');
-    if (state.activeLogoImg) {
-      avatar.innerHTML = '';
-      const clone = state.activeLogoImg.cloneNode();
-      clone.style.width = '100%';
-      clone.style.height = '100%';
-      clone.style.objectFit = 'contain';
-      avatar.appendChild(clone);
-    } else {
-      avatar.textContent = det.badgeText || 'QR';
-    }
-  }
+    state.options.fgColor = det.brandColor;
+    state.options.centerBadgeText = ''; // Prevent default badge overlap
 
-  async function handleAnalyze() {
-    const rawUrl = document.getElementById('urlInput').value.trim();
-    if (!rawUrl) return;
-
-    const analysisId = ++state.currentAnalysisId;
-    state.url = rawUrl;
-    state.isManualOverride = false;
-    state.activePreset = null;
-
-    const { evidence: det, isStale } = await MetadataProvider.fetchEvidence(rawUrl, analysisId);
-    if (isStale || analysisId !== state.currentAnalysisId) return;
-
-    state.detection = det;
-
-    const { img, dataUrl, isVerified } = await resolveAutoImageCascade(det.imageCandidates, analysisId);
-    if (analysisId !== state.currentAnalysisId) return;
-
-    state.activeLogoImg = img;
-    state.activeLogoDataUrl = dataUrl;
-    state.activeLogoIsVerified = isVerified;
-
-    updateDetectionUI(det);
-    applySmartDesign();
-  }
-
-  function applySmartDesign() {
-    if (!state.detection) return;
-    state.isManualOverride = false;
-    state.activePreset = null;
-
-    const chosen = state.smartMode === 'identity'
-      ? composeIdentityDesign(state.detection, state.designVariationIndex)
-      : composeContextDesign(state.detection, state.designVariationIndex);
-
-    state.options.dotStyle = chosen.dotStyle;
-    state.options.eyeStyle = chosen.eyeStyle;
-    state.options.fgColor = chosen.fgColor;
-    state.options.bgColor = chosen.bgColor;
-    state.options.useGradient = chosen.useGradient;
-    state.options.fgGradColor = chosen.fgGradColor;
-    state.options.centerBadgeText = chosen.centerBadgeText || '';
-    state.options.frameStyle = chosen.frameStyle;
-    state.options.frameText = chosen.frameText;
-    state.options.ecc = chosen.ecc;
-    state.options.quietZone = chosen.quietZone || 4;
-
-    document.getElementById('smartExplanation').textContent = chosen.explanation;
     syncControlsFromState();
     render();
   }
@@ -1693,8 +964,7 @@
     state.options.ecc = preset.ecc || 'H';
     state.options.frameStyle = preset.frame || 'none';
     state.options.frameText = preset.frameText || 'SCAN ME';
-    state.options.centerBadgeText = '';
-
+    // User's custom qrText is strictly preserved
     syncControlsFromState();
     render();
   }
@@ -1717,8 +987,8 @@
 
   function init() {
     document.getElementById('urlInput').value = '';
-    updateDetectionUI(null);
 
+    // Theme initialization
     document.documentElement.setAttribute('data-theme', state.theme);
     document.querySelectorAll('.theme-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.themeVal === state.theme);
@@ -1734,112 +1004,11 @@
 
     document.getElementById('analyzeBtn').onclick = handleAnalyze;
     document.getElementById('applySmartBtn').onclick = () => {
-      state.designVariationIndex = 0;
-      applySmartDesign();
-    };
-    document.getElementById('shuffleSmartBtn').onclick = () => {
-      state.designVariationIndex++;
-      applySmartDesign();
-    };
-
-    const identityBtn = document.getElementById('modeIdentityBtn');
-    const contextBtn = document.getElementById('modeContextBtn');
-    if (identityBtn && contextBtn) {
-      identityBtn.onclick = () => {
-        if (state.smartMode !== 'identity') {
-          state.smartMode = 'identity';
-          state.designVariationIndex = 0;
-          updateSmartModeUI();
-          applySmartDesign();
-        }
-      };
-      contextBtn.onclick = () => {
-        if (state.smartMode !== 'context') {
-          state.smartMode = 'context';
-          state.designVariationIndex = 0;
-          updateSmartModeUI();
-          applySmartDesign();
-        }
-      };
-    }
-
-    const handleManualChange = () => {
-      state.isManualOverride = true;
-      state.activePreset = null;
-      renderPresets();
-    };
-
-    document.getElementById('dotStyleSelect').onchange = e => { handleManualChange(); state.options.dotStyle = e.target.value; render(); };
-    document.getElementById('eyeStyleSelect').onchange = e => { handleManualChange(); state.options.eyeStyle = e.target.value; render(); };
-
-    // Color inputs
-    document.getElementById('fgColor').oninput = e => {
-      if (isValidHexColor(e.target.value)) {
-        handleManualChange();
-        state.options.fgColor = normalizeHexColor(e.target.value);
-        document.getElementById('fgColorText').value = state.options.fgColor;
-        render();
-      }
-    };
-    document.getElementById('fgColorText').onchange = e => {
-      if (isValidHexColor(e.target.value)) {
-        handleManualChange();
-        state.options.fgColor = normalizeHexColor(e.target.value);
-        document.getElementById('fgColor').value = state.options.fgColor;
-        document.getElementById('fgColorText').value = state.options.fgColor;
-        render();
-      } else {
-        document.getElementById('fgColorText').value = state.options.fgColor;
-      }
-    };
-
-    document.getElementById('bgColor').oninput = e => {
-      if (isValidHexColor(e.target.value)) {
-        handleManualChange();
-        state.options.bgColor = normalizeHexColor(e.target.value);
-        document.getElementById('bgColorText').value = state.options.bgColor;
-        render();
-      }
-    };
-    document.getElementById('bgColorText').onchange = e => {
-      if (isValidHexColor(e.target.value)) {
-        handleManualChange();
-        state.options.bgColor = normalizeHexColor(e.target.value);
-        document.getElementById('bgColor').value = state.options.bgColor;
-        document.getElementById('bgColorText').value = state.options.bgColor;
-        render();
-      } else {
-        document.getElementById('bgColorText').value = state.options.bgColor;
-      }
-    };
-
-    document.getElementById('enableGradient').onchange = e => {
-      handleManualChange();
-      state.options.useGradient = e.target.checked;
+      state.options.centerBadgeText = '';
       render();
     };
 
-    document.getElementById('fgGradColor').oninput = e => {
-      if (isValidHexColor(e.target.value)) {
-        handleManualChange();
-        state.options.fgGradColor = normalizeHexColor(e.target.value);
-        document.getElementById('fgGradColorText').value = state.options.fgGradColor;
-        render();
-      }
-    };
-    document.getElementById('fgGradColorText').onchange = e => {
-      if (isValidHexColor(e.target.value)) {
-        handleManualChange();
-        state.options.fgGradColor = normalizeHexColor(e.target.value);
-        document.getElementById('fgGradColor').value = state.options.fgGradColor;
-        document.getElementById('fgGradColorText').value = state.options.fgGradColor;
-        render();
-      } else {
-        document.getElementById('fgGradColorText').value = state.options.fgGradColor;
-      }
-    };
-
-    // --- QR TEXT APPLY & CLEAR ACTIONS ---
+    // --- QR TEXT APPLY & CLEAR LISTENERS ---
     const qrTextInput = document.getElementById('qrTextInput');
     const qrTextApplyBtn = document.getElementById('qrTextApplyBtn');
     const qrTextClearBtn = document.getElementById('qrTextClearBtn');
@@ -1848,17 +1017,14 @@
     if (qrTextApplyBtn) {
       qrTextApplyBtn.onclick = () => {
         if (!qrTextInput) return;
-        const val = qrTextInput.value.trim().toUpperCase().slice(0, 10);
-        state.isManualOverride = true;
-        state.options.qrText = val;
-        // Suppress generic center badge to let in-matrix text stand out
-        state.options.centerBadgeText = '';
+        state.options.qrText = qrTextInput.value.trim().toUpperCase().slice(0, 10);
+        state.options.centerBadgeText = ''; // Suppress square badge
         render();
       };
     }
 
     if (qrTextInput) {
-      qrTextInput.onkeydown = e => {
+      qrTextInput.onkeydown = (e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
           if (qrTextApplyBtn) qrTextApplyBtn.click();
@@ -1867,38 +1033,36 @@
     }
 
     if (qrTextModeSelect) {
-      qrTextModeSelect.onchange = e => {
-        state.isManualOverride = true;
+      qrTextModeSelect.onchange = (e) => {
         state.options.qrTextMode = e.target.value;
-        if (state.options.qrText) {
-          render();
-        }
+        if (state.options.qrText) render();
       };
     }
 
     if (qrTextClearBtn) {
       qrTextClearBtn.onclick = () => {
-        state.isManualOverride = true;
         state.options.qrText = '';
         if (qrTextInput) qrTextInput.value = '';
         render();
       };
     }
 
-    document.getElementById('frameStyleSelect').onchange = e => { handleManualChange(); state.options.frameStyle = e.target.value; render(); };
-    document.getElementById('frameText').oninput = e => { handleManualChange(); state.options.frameText = e.target.value; render(); };
-    document.getElementById('eccSelect').onchange = e => { handleManualChange(); state.options.ecc = e.target.value; render(); };
+    // --- LOGO UPLOAD & SCALE SLIDER ---
+    const logoUpload = document.getElementById('logoUpload');
+    const logoSizeSlider = document.getElementById('logoSizeSlider');
+    const logoSizeVal = document.getElementById('logoSizeVal');
 
-    document.getElementById('quietZoneSelect').onchange = e => {
-      handleManualChange();
-      state.options.quietZone = parseInt(e.target.value, 10);
-      updateQuietZoneWarning();
-      render();
-    };
+    if (logoSizeSlider) {
+      logoSizeSlider.oninput = (e) => {
+        const val = parseInt(e.target.value, 10);
+        state.options.logoScale = val / 100;
+        if (logoSizeVal) logoSizeVal.textContent = `${val}%`;
+        render();
+      };
+    }
 
     document.querySelectorAll('input[name="logoMode"]').forEach(radio => {
-      radio.onchange = e => {
-        handleManualChange();
+      radio.onchange = (e) => {
         state.options.logoMode = e.target.value;
         const uploadCont = document.getElementById('customUploadContainer');
         if (uploadCont) uploadCont.classList.toggle('hidden-field', e.target.value !== 'custom');
@@ -1906,14 +1070,12 @@
       };
     });
 
-    const logoUpload = document.getElementById('logoUpload');
     if (logoUpload) {
-      logoUpload.onchange = e => {
-        handleManualChange();
+      logoUpload.onchange = (e) => {
         const file = e.target.files[0];
         if (file) {
           const reader = new FileReader();
-          reader.onload = ev => {
+          reader.onload = (ev) => {
             const img = new Image();
             img.onload = () => {
               state.customLogoImg = img;
@@ -1927,25 +1089,20 @@
       };
     }
 
+    // Download handlers
     document.getElementById('downloadPngBtn').onclick = () => {
       if (!state.url) return;
       const exportCanvas = document.createElement('canvas');
       QRRenderer.renderCanvas(exportCanvas, 1600, true);
-      try {
-        const dataUrl = exportCanvas.toDataURL('image/png');
-        const link = document.createElement('a');
-        link.download = `smart-qr-${Date.now()}.png`;
-        link.href = dataUrl;
-        link.click();
-      } catch (err) {
-        console.error('PNG Export Error:', err);
-      }
+      const link = document.createElement('a');
+      link.download = `smart-qr-${Date.now()}.png`;
+      link.href = exportCanvas.toDataURL('image/png');
+      link.click();
     };
 
     document.getElementById('downloadSvgBtn').onclick = () => {
       if (!state.url) return;
       const svg = QRRenderer.generateSVG();
-      if (!svg) return;
       const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');

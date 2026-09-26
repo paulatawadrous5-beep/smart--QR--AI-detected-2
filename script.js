@@ -1,11 +1,16 @@
 /**
  * Smart QR Studio — Dynamic Evidence-Based QR Platform
- * Final Two-Issue Hardening Patch:
- * - Structural 7x7 finder pattern safety: Canvas and SVG render exact, unclipped 7x7 structural QR Finders
- *   (outer 7x7 box, 1-module clear separator ring, solid 3x3 core) preserving standard 1:1:3:1:1 proportions
- *   without decorative clipping, while allowing creative dot styles on data modules.
- * - Server theme-color validation: incoming metadata themeColor is strictly validated via isValidHexColor()
- *   and normalized before entering the application state, canvas, SVG, or luminance calculations.
+ * Final Micro-Patch Engine:
+ * - Structural QR function mask applied directly to Canvas & SVG rendering
+ * - Format information regions (along finders) protected in function mask
+ * - Function modules (timing, alignment, format, version, dark module) rendered strictly as square modules
+ * - Finder eyes preserved for custom styling while isolating from data module decor
+ * - Variable canvas sizing: requestedSize parameter honoring 480px preview and 1600px PNG export
+ * - Added safe-boundary platform detectors: TikTok, Pinterest, WhatsApp, Telegram
+ * - Asynchronous tokenized BarcodeDetector testing preventing stale telemetry updates
+ * - Both gradient endpoints evaluated for worst-case contrast reporting
+ * - Honest terminology: "resolved identity asset" used instead of "verified" unless verified via server
+ * - Final telemetry recalculation reflecting post-repair state
  */
 
 (function () {
@@ -20,13 +25,12 @@
     designVariationIndex: 0,
     activePreset: null,
     activeLogoImg: null,
-    activeLogoDataUrl: null,
-    activeLogoIsVerified: false,
+    activeLogoDataUrl: null, // Preserved for clean SVG inline embed
     customLogoImg: null,
     customLogoDataUrl: null,
     isManualOverride: false,
-    currentAnalysisId: 0,
-    currentRenderToken: 0,
+    currentAnalysisId: 0, // Monotonic token to prevent out-of-order async race conditions
+    currentRenderToken: 0, // Monotonic token specifically for canvas scan decoding telemetry
     options: {
       dotStyle: 'square', // 'square' | 'rounded' | 'dots' | 'classy' | 'smooth'
       eyeStyle: 'square', // 'square' | 'rounded' | 'circle' | 'leaf'
@@ -35,54 +39,16 @@
       useGradient: false,
       fgGradColor: '#2563EB',
       logoMode: 'auto', // 'auto' | 'none' | 'custom'
-      centerBadgeText: '',
-      frameStyle: 'none', // 'none' | 'badge-top' | 'badge-bottom' | 'pill'
+      centerBadgeText: '', // Dynamically generated initials/short label
+      frameStyle: 'none',  // 'none' | 'badge-top' | 'badge-bottom' | 'pill'
       frameText: 'SCAN ME',
       ecc: 'H',
-      quietZone: 4,
+      quietZone: 4, // Default 4-module quiet zone per QR specification
       size: 1024
     }
   };
 
-  // --- 2. VALIDATION, COLOR, XML, URI & URL UTILITIES ---
-
-  function isValidHexColor(hex) {
-    if (!hex || typeof hex !== 'string') return false;
-    return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(hex.trim());
-  }
-
-  function normalizeHexColor(hex) {
-    const clean = hex.trim();
-    if (clean.length === 4) {
-      return `#${clean[1]}${clean[1]}${clean[2]}${clean[2]}${clean[3]}${clean[3]}`.toUpperCase();
-    }
-    return clean.toUpperCase();
-  }
-
-  function hexToRgb(hex) {
-    const clean = normalizeHexColor(hex).replace('#', '');
-    const rgbInt = parseInt(clean, 16);
-    return {
-      r: (rgbInt >> 16) & 0xff,
-      g: (rgbInt >> 8) & 0xff,
-      b: rgbInt & 0xff
-    };
-  }
-
-  function rgbToHex(r, g, b) {
-    const clamp = (val) => Math.max(0, Math.min(255, Math.round(val)));
-    const toHex = (c) => clamp(c).toString(16).padStart(2, '0').toUpperCase();
-    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
-  }
-
-  function adjustColorBrightness(hex, factor) {
-    const { r, g, b } = hexToRgb(hex);
-    if (factor < 0) {
-      const mult = 1 + factor;
-      return rgbToHex(r * mult, g * mult, b * mult);
-    }
-    return rgbToHex(r + (255 - r) * factor, g + (255 - g) * factor, b + (255 - b) * factor);
-  }
+  // --- 2. XML & URL UTILITIES ---
 
   function escapeXml(unsafe) {
     if (!unsafe) return '';
@@ -98,15 +64,6 @@
     });
   }
 
-  function safeDecodeURIComponent(str) {
-    if (!str) return '';
-    try {
-      return decodeURIComponent(str);
-    } catch (e) {
-      return String(str).replace(/%(?![0-9a-fA-F]{2})/g, '%25');
-    }
-  }
-
   function normalizeURL(rawUrl) {
     if (!rawUrl || typeof rawUrl !== 'string') return '';
     const trimmed = rawUrl.trim();
@@ -114,13 +71,16 @@
       const hasScheme = /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed);
       const parsed = new URL(hasScheme ? trimmed : `https://${trimmed}`);
 
+      // Strip redundant default ports
       if ((parsed.protocol === 'http:' && parsed.port === '80') ||
           (parsed.protocol === 'https:' && parsed.port === '443')) {
         parsed.port = '';
       }
 
+      // Normalize hostname to lowercase
       parsed.hostname = parsed.hostname.toLowerCase();
 
+      // Normalize root trailing slash
       if (parsed.pathname === '/') {
         parsed.pathname = '';
       }
@@ -195,7 +155,7 @@
       const mask = Array.from({ length: moduleCount }, () => new Uint8Array(moduleCount));
       const v = this.getVersion(moduleCount);
 
-      // 1. Finder patterns + separators (8x8 module regions)
+      // 1. Finder patterns + separators (8x8 module regions at top-left, top-right, bottom-left)
       for (let r = 0; r < 9; r++) {
         for (let c = 0; c < 9; c++) {
           if (r < moduleCount && c < moduleCount) mask[r][c] = 1;
@@ -204,33 +164,37 @@
         }
       }
 
-      // 2. Format Information Areas
+      // 2. Format Information Areas (adjacent to finders)
+      // Around Top-Left finder: row 8 from 0 to 8, col 8 from 0 to 8
       for (let i = 0; i <= 8; i++) {
         if (i < moduleCount) {
           mask[8][i] = 1;
           mask[i][8] = 1;
         }
       }
+      // Around Top-Right finder: row 8 from (moduleCount - 8) to (moduleCount - 1)
       for (let c = moduleCount - 8; c < moduleCount; c++) {
         if (c >= 0) mask[8][c] = 1;
       }
+      // Around Bottom-Left finder: col 8 from (moduleCount - 8) to (moduleCount - 1)
       for (let r = moduleCount - 8; r < moduleCount; r++) {
         if (r >= 0) mask[r][8] = 1;
       }
 
-      // 3. Timing patterns
+      // 3. Timing patterns along Row 6 and Column 6
       for (let i = 0; i < moduleCount; i++) {
         mask[6][i] = 1;
         mask[i][6] = 1;
       }
 
-      // 4. Alignment patterns
+      // 4. Alignment patterns (5x5 module grid centered on defined coordinates)
       if (v >= 2 && v <= 40 && this.alignmentPatternCenters[v]) {
         const centers = this.alignmentPatternCenters[v];
         for (let i = 0; i < centers.length; i++) {
           for (let j = 0; j < centers.length; j++) {
             const cr = centers[i];
             const cc = centers[j];
+            // Skip alignment patterns overlapping finder 8x8 regions
             if ((cr <= 8 && cc <= 8) ||
                 (cr <= 8 && cc >= moduleCount - 9) ||
                 (cr >= moduleCount - 9 && cc <= 8)) {
@@ -249,17 +213,17 @@
         }
       }
 
-      // 5. Version info areas
+      // 5. Version info areas (Versions >= 7: 3x6 rectangles adjacent to finders)
       if (v >= 7) {
         for (let r = 0; r < 6; r++) {
           for (let c = 0; c < 3; c++) {
-            mask[r][moduleCount - 11 + c] = 1;
-            mask[moduleCount - 11 + c][r] = 1;
+            mask[r][moduleCount - 11 + c] = 1; // Top-right version block
+            mask[moduleCount - 11 + c][r] = 1; // Bottom-left version block
           }
         }
       }
 
-      // 6. Dark module
+      // 6. Dark module (fixed point at row 4*V + 9, column 8)
       const darkModuleRow = 4 * v + 9;
       if (darkModuleRow < moduleCount) {
         mask[darkModuleRow][8] = 1;
@@ -400,13 +364,15 @@
       let isVerifiedServerMetadata = false;
       const imageCandidates = [];
 
+      // Safe domain boundary matcher (exact host or exact subdomain suffix)
       const matchesDomain = (targetDomain) => host === targetDomain || host.endsWith(`.${targetDomain}`);
 
+      // Platform Heuristics with Complete Boundary Validation
       if (matchesDomain('wikipedia.org')) {
         platform = 'Wikipedia';
         brandColor = '#1F2937';
         if (pathParts[0] === 'wiki' && pathParts[1]) {
-          displayName = safeDecodeURIComponent(pathParts[1]).replace(/_/g, ' ');
+          displayName = decodeURIComponent(pathParts[1]).replace(/_/g, ' ');
           category = 'Reference / Editorial';
         } else {
           displayName = 'Wikipedia';
@@ -429,7 +395,7 @@
           username = `@${pathParts[1]}`;
           category = 'Professional Profile';
         } else if (path.includes('/company/') && pathParts[1]) {
-          displayName = safeDecodeURIComponent(pathParts[1]).replace(/[-_]/g, ' ');
+          displayName = decodeURIComponent(pathParts[1]).replace(/[-_]/g, ' ');
           category = 'Enterprise';
         }
       } else if (matchesDomain('instagram.com')) {
@@ -513,6 +479,7 @@
         brandColor = '#1E3A8A';
       }
 
+      // Generic Path Pattern Disambiguation
       if (category === 'Web Destination') {
         const lowerPath = path.toLowerCase();
         if (lowerPath.includes('menu') || lowerPath.includes('restaurant') || lowerPath.includes('dining')) {
@@ -527,6 +494,7 @@
         }
       }
 
+      // Layer 2: Optional Serverless/Worker Metadata Provider
       if (this.apiEndpoint) {
         try {
           const timeoutPromise = new Promise((_, reject) =>
@@ -541,36 +509,30 @@
             if (meta.ogTitle || meta.title) {
               displayName = this.sanitize(meta.ogTitle || meta.title);
             }
-            // Validate incoming server theme color strictly before assignment
-            if (meta.themeColor && isValidHexColor(meta.themeColor)) {
-              brandColor = normalizeHexColor(meta.themeColor);
-            }
+            if (meta.themeColor) brandColor = meta.themeColor;
             if (meta.author && !username) displayName = this.sanitize(meta.author);
 
-            if (meta.profileImage) imageCandidates.push({ priority: 1, type: 'profile', url: meta.profileImage, isVerified: Boolean(meta.profileImageVerified) });
-            if (meta.ogImage) imageCandidates.push({ priority: 2, type: 'og', url: meta.ogImage, isVerified: Boolean(meta.ogImageVerified) });
-            if (meta.logo) imageCandidates.push({ priority: 3, type: 'logo', url: meta.logo, isVerified: Boolean(meta.logoVerified) });
+            if (meta.profileImage) imageCandidates.push({ priority: 1, type: 'profile', url: meta.profileImage });
+            if (meta.ogImage) imageCandidates.push({ priority: 2, type: 'og', url: meta.ogImage });
+            if (meta.logo) imageCandidates.push({ priority: 3, type: 'logo', url: meta.logo });
 
             isVerifiedServerMetadata = true;
             confidence = 'Verified server metadata';
           }
         } catch (err) {
-          // Fallback to structural heuristics
+          // Graceful fallback to structural heuristics
         }
       }
 
+      // Layer 3 Favicon Fallback
       imageCandidates.push({
         priority: 4,
         type: 'favicon',
-        url: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=128`,
-        isVerified: false
+        url: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=128`
       });
 
       const effectiveDisplayName = displayName || (username ? username : platform);
       const badgeText = IdentitySynthesizer.synthesizeBadgeLabel(displayName, username, platform, 4);
-
-      // Guarantee brandColor is always a normalized valid hex color
-      const safeBrandColor = isValidHexColor(brandColor) ? normalizeHexColor(brandColor) : '#2563EB';
 
       const result = {
         valid: true,
@@ -581,7 +543,7 @@
         username: username ? this.sanitize(username) : null,
         category,
         confidence,
-        brandColor: safeBrandColor,
+        brandColor,
         badgeText,
         imageCandidates,
         isVerifiedServerMetadata
@@ -592,20 +554,20 @@
     }
   };
 
-  // --- 6. PRESETS DEFINITION ---
+  // --- 6. PRESETS ---
   const PRESETS = [
-    { id: 'minimal', name: 'Minimal', dot: 'square', eye: 'square', fg: '#0F172A', bg: '#FFFFFF', grad: false, ecc: 'M', frame: 'none', frameText: 'SCAN ME' },
-    { id: 'professional', name: 'Professional', dot: 'rounded', eye: 'square', fg: '#1E3A8A', bg: '#F8FAFC', grad: false, ecc: 'H', frame: 'badge-bottom', frameText: 'LEARN MORE' },
-    { id: 'business', name: 'Corporate', dot: 'square', eye: 'square', fg: '#047857', bg: '#F0FDF4', grad: false, ecc: 'H', frame: 'badge-bottom', frameText: 'VISIT' },
-    { id: 'social', name: 'Social Pop', dot: 'rounded', eye: 'square', fg: '#E11D48', bg: '#FFF1F2', grad: true, gradColor: '#FB7185', ecc: 'H', frame: 'pill', frameText: 'FOLLOW' },
-    { id: 'creator', name: 'Creator', dot: 'dots', eye: 'square', fg: '#7C3AED', bg: '#FAF5FF', grad: true, gradColor: '#EC4899', ecc: 'H', frame: 'pill', frameText: 'CONNECT' },
-    { id: 'editorial', name: 'Editorial', dot: 'classy', eye: 'square', fg: '#334155', bg: '#FDFBF7', grad: false, ecc: 'H', frame: 'none', frameText: 'READ' },
-    { id: 'restaurant', name: 'Dining Menu', dot: 'smooth', eye: 'square', fg: '#9A3412', bg: '#FFFBEB', grad: false, ecc: 'H', frame: 'badge-bottom', frameText: 'VIEW MENU' },
-    { id: 'tech', name: 'Cyber Tech', dot: 'dots', eye: 'square', fg: '#0284C7', bg: '#0B132B', grad: false, ecc: 'H', frame: 'none', frameText: 'EXPLORE' },
-    { id: 'organic', name: 'Eco Organic', dot: 'smooth', eye: 'square', fg: '#15803D', bg: '#F0FDF4', grad: false, ecc: 'H', frame: 'pill', frameText: 'DISCOVER' },
-    { id: 'neon', name: 'Neon Glow', dot: 'dots', eye: 'square', fg: '#06B6D4', bg: '#030712', grad: true, gradColor: '#3B82F6', ecc: 'H', frame: 'none', frameText: 'SCAN' },
-    { id: 'luxury', name: 'Luxury Gold', dot: 'classy', eye: 'square', fg: '#854D0E', bg: '#FEFCE8', grad: false, ecc: 'H', frame: 'pill', frameText: 'EXCLUSIVE' },
-    { id: 'playful', name: 'Playful', dot: 'dots', eye: 'square', fg: '#EA580C', bg: '#FFF7ED', grad: true, gradColor: '#EAB308', ecc: 'H', frame: 'badge-bottom', frameText: 'OPEN' }
+    { id: 'minimal', name: 'Minimal', dot: 'square', eye: 'square', fg: '#0F172A', bg: '#FFFFFF', grad: false, ecc: 'M' },
+    { id: 'professional', name: 'Professional', dot: 'rounded', eye: 'rounded', fg: '#1E3A8A', bg: '#F8FAFC', grad: false, ecc: 'H' },
+    { id: 'business', name: 'Corporate', dot: 'square', eye: 'rounded', fg: '#047857', bg: '#F0FDF4', grad: false, ecc: 'H' },
+    { id: 'social', name: 'Social Pop', dot: 'rounded', eye: 'circle', fg: '#E11D48', bg: '#FFF1F2', grad: true, gradColor: '#FB7185', ecc: 'H' },
+    { id: 'creator', name: 'Creator', dot: 'dots', eye: 'circle', fg: '#7C3AED', bg: '#FAF5FF', grad: true, gradColor: '#EC4899', ecc: 'H' },
+    { id: 'editorial', name: 'Editorial', dot: 'classy', eye: 'square', fg: '#334155', bg: '#FDFBF7', grad: false, ecc: 'H' },
+    { id: 'restaurant', name: 'Dining Menu', dot: 'smooth', eye: 'leaf', fg: '#9A3412', bg: '#FFFBEB', grad: false, ecc: 'H' },
+    { id: 'tech', name: 'Cyber Tech', dot: 'dots', eye: 'square', fg: '#0284C7', bg: '#0B132B', grad: false, ecc: 'H' },
+    { id: 'organic', name: 'Eco Organic', dot: 'smooth', eye: 'leaf', fg: '#15803D', bg: '#F0FDF4', grad: false, ecc: 'H' },
+    { id: 'neon', name: 'Neon Glow', dot: 'dots', eye: 'circle', fg: '#06B6D4', bg: '#030712', grad: true, gradColor: '#3B82F6', ecc: 'H' },
+    { id: 'luxury', name: 'Luxury Gold', dot: 'classy', eye: 'rounded', fg: '#854D0E', bg: '#FEFCE8', grad: false, ecc: 'H' },
+    { id: 'playful', name: 'Playful', dot: 'dots', eye: 'circle', fg: '#EA580C', bg: '#FFF7ED', grad: true, gradColor: '#EAB308', ecc: 'H' }
   ];
 
   // --- 7. TELEMETRY, CONSERVATIVE FOOTPRINT & HARDWARE SCAN TEST ---
@@ -634,45 +596,18 @@
       let contrast = this.getContrast(state.options.fgColor, state.options.bgColor);
       if (state.options.useGradient && state.options.fgGradColor) {
         const gradContrast = this.getContrast(state.options.fgGradColor, state.options.bgColor);
-        contrast = Math.min(contrast, gradContrast);
+        contrast = Math.min(contrast, gradContrast); // Strict worst-case evaluation across both endpoints
       }
       return contrast;
     },
 
-    repairColorContrast(color, bgColor, targetContrast = 4.0) {
-      if (this.getContrast(color, bgColor) >= targetContrast) {
-        return color;
-      }
-
-      const bgLum = this.getLuminance(bgColor);
-      const shouldDarken = bgLum > 0.4;
-      const steps = [0.15, 0.30, 0.45, 0.60, 0.75, 0.88];
-
-      for (const step of steps) {
-        const factor = shouldDarken ? -step : step;
-        const candidate = adjustColorBrightness(color, factor);
-        if (this.getContrast(candidate, bgColor) >= targetContrast) {
-          return candidate;
-        }
-      }
-
-      return shouldDarken ? '#0F172A' : '#FFFFFF';
-    },
-
-    computeCenterFootprint(moduleCount, isExportMode = false) {
+    computeCenterFootprint(moduleCount) {
       if (state.options.logoMode === 'none') {
         return { sideCells: 0, coverageRatio: 0 };
       }
 
-      const hasSafeCustom = state.options.logoMode === 'custom' &&
-        (isExportMode ? (Boolean(state.customLogoDataUrl) || Boolean(state.customLogoImg)) : Boolean(state.customLogoImg));
-
-      const hasSafeAuto = state.options.logoMode === 'auto' &&
-        (isExportMode
-          ? (Boolean(state.activeLogoDataUrl) || Boolean(state.options.centerBadgeText))
-          : (Boolean(state.activeLogoImg) || Boolean(state.options.centerBadgeText)));
-
-      const hasEntity = hasSafeCustom || hasSafeAuto;
+      const hasEntity = (state.options.logoMode === 'custom' && state.customLogoImg) ||
+                        (state.options.logoMode === 'auto' && (state.activeLogoImg || state.options.centerBadgeText));
 
       if (!hasEntity) {
         return { sideCells: 0, coverageRatio: 0 };
@@ -704,7 +639,7 @@
         if (!overlapsFunctionModule) {
           bestSide = s;
         } else {
-          break;
+          break; // Stop immediately upon reaching any protected structural module
         }
       }
 
@@ -721,6 +656,7 @@
         try {
           const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
           const barcodes = await detector.detect(canvas);
+          // Verify render token before mutating UI state
           if (renderToken === state.currentRenderToken) {
             if (barcodes && barcodes.length > 0) {
               statusText.textContent = 'Hardware Scan Decoded ✓';
@@ -728,7 +664,7 @@
             }
           }
         } catch (e) {
-          // Fall through
+          // Gracefully fallback
         }
       }
       if (renderToken === state.currentRenderToken) {
@@ -736,7 +672,7 @@
       }
     },
 
-    evaluateAndRepair(moduleCount = 33, isExportMode = false) {
+    evaluateAndRepair(moduleCount = 33) {
       if (!state.url) {
         document.getElementById('contrastVal').textContent = '—';
         document.getElementById('logoAreaVal').textContent = '—';
@@ -748,46 +684,29 @@
 
       let repaired = false;
 
-      // 1. Multi-stage smart brand color repair for foreground & gradient
-      const initialFgContrast = this.getContrast(state.options.fgColor, state.options.bgColor);
-      if (initialFgContrast < 4.0) {
-        const repairedFg = this.repairColorContrast(state.options.fgColor, state.options.bgColor, 4.0);
-        state.options.fgColor = repairedFg;
-
-        const fgInput = document.getElementById('fgColor');
-        const fgTextInput = document.getElementById('fgColorText');
-        if (fgInput) fgInput.value = repairedFg;
-        if (fgTextInput) fgTextInput.value = repairedFg;
+      // Safety Gate 1: Contrast ratio check across all gradient endpoints (minimum 4.0:1)
+      if (this.getEffectiveContrast() < 4.0) {
+        state.options.fgColor = '#0F172A';
+        state.options.bgColor = '#FFFFFF';
+        document.getElementById('fgColor').value = '#0F172A';
+        document.getElementById('fgColorText').value = '#0F172A';
+        document.getElementById('bgColor').value = '#FFFFFF';
+        document.getElementById('bgColorText').value = '#FFFFFF';
         repaired = true;
       }
 
-      if (state.options.useGradient && state.options.fgGradColor) {
-        const initialGradContrast = this.getContrast(state.options.fgGradColor, state.options.bgColor);
-        if (initialGradContrast < 4.0) {
-          const repairedGrad = this.repairColorContrast(state.options.fgGradColor, state.options.bgColor, 4.0);
-          state.options.fgGradColor = repairedGrad;
-
-          const gradInput = document.getElementById('fgGradColor');
-          const gradTextInput = document.getElementById('fgGradColorText');
-          if (gradInput) gradInput.value = repairedGrad;
-          if (gradTextInput) gradTextInput.value = repairedGrad;
-          repaired = true;
-        }
-      }
-
-      // 2. Elevate to ECC H when center cutout exists and ECC is lower
+      // Safety Gate 2: Elevate to ECC H when center cutout exists and ECC is lower
       const hasCenterEntity = (state.options.logoMode === 'custom' && state.customLogoImg) ||
                               (state.options.logoMode === 'auto' && (state.activeLogoImg || state.options.centerBadgeText));
 
       if (hasCenterEntity && (state.options.ecc === 'L' || state.options.ecc === 'M')) {
         state.options.ecc = 'H';
-        const eccSelect = document.getElementById('eccSelect');
-        if (eccSelect) eccSelect.value = 'H';
+        document.getElementById('eccSelect').value = 'H';
         repaired = true;
       }
 
-      // 3. Final post-repair recomputations
-      const finalFootprint = this.computeCenterFootprint(moduleCount, isExportMode);
+      // Final post-repair recomputations
+      const finalFootprint = this.computeCenterFootprint(moduleCount);
       const finalEffectiveContrast = this.getEffectiveContrast();
 
       document.getElementById('contrastVal').textContent = `${finalEffectiveContrast.toFixed(1)}:1`;
@@ -806,7 +725,7 @@
     }
   };
 
-  // --- 8. DYNAMIC MULTI-SIGNAL SYNTHETIC DESIGN ENGINES ---
+  // --- 8. DYNAMIC SYNTHETIC DESIGN ENGINES ---
   function composeIdentityDesign(detection, variationIndex = 0) {
     const brand = detection.brandColor || '#0F172A';
     const hasImage = Boolean(state.activeLogoImg);
@@ -814,16 +733,16 @@
     const tag = detection.username || detection.displayName;
 
     const variations = [
-      { dot: 'rounded', eye: 'square', useGrad: false, gradColor: brand },
+      { dot: 'rounded', eye: 'rounded', useGrad: false, gradColor: brand },
       { dot: 'square', eye: 'square', useGrad: false, gradColor: brand },
-      { dot: 'classy', eye: 'square', useGrad: true, gradColor: '#3B82F6' }
+      { dot: 'classy', eye: 'rounded', useGrad: true, gradColor: '#3B82F6' }
     ];
 
     const pick = variations[variationIndex % variations.length];
 
     let explanation = `Identity Mode: Dynamically composed for "${detection.displayName}".`;
     if (hasImage) {
-      const assetDescriptor = state.activeLogoIsVerified ? 'verified server asset' : 'resolved identity asset';
+      const assetDescriptor = detection.isVerifiedServerMetadata ? 'verified server asset' : 'resolved identity asset';
       explanation += ` Center integrated with ${assetDescriptor} and brand geometry.`;
     } else {
       explanation += ` Center integrated with generated badge [${badge}] and safe contrast.`;
@@ -831,7 +750,7 @@
 
     return {
       dotStyle: pick.dot,
-      eyeStyle: 'square', // Strictly preserved structural finder
+      eyeStyle: pick.eye,
       fgColor: brand,
       bgColor: '#FFFFFF',
       useGradient: pick.useGrad,
@@ -846,87 +765,54 @@
   }
 
   function composeContextDesign(detection, variationIndex = 0) {
-    const url = (detection.url || '').toLowerCase();
-    const platform = (detection.platform || '').toLowerCase();
-    const cat = (detection.category || '').toLowerCase();
-    const name = (detection.displayName || '').toLowerCase();
-    const username = (detection.username || '').toLowerCase();
-
-    const isSocialCreator = platform === 'instagram' || platform === 'tiktok' || platform === 'pinterest' ||
-      cat.includes('creator') || cat.includes('profile') || username.startsWith('@');
-
-    const isVideoDestination = platform === 'youtube' || url.includes('/watch') || url.includes('youtu.be') ||
-      cat.includes('video') || cat.includes('streaming');
-
-    const isEditorialReference = platform === 'wikipedia' || cat.includes('editorial') || cat.includes('reference') ||
-      cat.includes('article') || url.includes('/wiki/') || url.includes('/blog/');
-
-    const isDiningHospitality = cat.includes('hospitality') || cat.includes('menu') || url.includes('menu') ||
-      url.includes('restaurant') || url.includes('dining') || name.includes('cafe') || name.includes('bistro');
-
-    const isEducational = platform.includes('college') || platform.includes('university') || cat.includes('education') ||
-      url.includes('.edu') || name.includes('college') || name.includes('school');
-
-    const isMessaging = platform === 'whatsapp' || platform === 'telegram' || platform === 'discord' ||
-      cat.includes('messaging') || url.includes('wa.me') || url.includes('t.me');
-
+    const cat = detection.category.toLowerCase();
     let dotStyle = 'square';
-    let eyeStyle = 'square'; // Strictly preserved structural finder
-    let fgColor = detection.brandColor || '#0F172A';
+    let eyeStyle = 'square';
+    let fgColor = '#0F172A';
     let bgColor = '#FFFFFF';
     let useGradient = false;
     let fgGradColor = '#2563EB';
     let frameStyle = 'none';
     let frameText = 'SCAN ME';
-    let explanation = '';
+    let explanation = `Context Mode: Synthesized for "${detection.category}". Prioritizing scanning context.`;
 
-    if (isSocialCreator) {
+    if (cat.includes('editorial') || cat.includes('reference') || cat.includes('article')) {
+      dotStyle = variationIndex % 2 === 0 ? 'classy' : 'square';
+      eyeStyle = 'square';
+      fgColor = '#334155';
+      bgColor = '#FDFBF7';
+      explanation = `Context Mode: Editorial destination detected. Structured, high-contrast modules selected.`;
+    } else if (cat.includes('profile') || cat.includes('creator') || cat.includes('social') || cat.includes('board')) {
       dotStyle = 'dots';
-      fgColor = detection.brandColor && detection.brandColor !== '#0F172A' ? detection.brandColor : '#BE185D';
+      eyeStyle = 'circle';
+      fgColor = '#BE185D';
       useGradient = true;
       fgGradColor = '#7C3AED';
       frameStyle = 'pill';
-      frameText = username ? username.toUpperCase().slice(0, 16) : 'CONNECT';
-      explanation = `Context Mode (Social/Creator): Recognized creator profile for "${detection.displayName}". Fluid curved modules and connection framing applied.`;
-    } else if (isVideoDestination) {
-      dotStyle = variationIndex % 2 === 0 ? 'rounded' : 'square';
-      fgColor = '#DC2626';
-      useGradient = true;
-      fgGradColor = '#991B1B';
-      frameStyle = 'badge-bottom';
-      frameText = 'WATCH NOW';
-      explanation = `Context Mode (Streaming/Video): Video destination identified. Media streaming palette and action banner configured.`;
-    } else if (isEditorialReference) {
-      dotStyle = variationIndex % 2 === 0 ? 'classy' : 'square';
-      fgColor = '#334155';
-      bgColor = '#FDFBF7';
-      frameStyle = 'none';
-      explanation = `Context Mode (Editorial/Reference): Structured document/article destination. Classical geometry and high readability contrast applied.`;
-    } else if (isDiningHospitality) {
+      frameText = 'CONNECT';
+      explanation = `Context Mode: Creator/profile destination detected. Curved dynamic modules selected.`;
+    } else if (cat.includes('hospitality') || cat.includes('menu')) {
       dotStyle = 'smooth';
+      eyeStyle = 'leaf';
       fgColor = '#9A3412';
       bgColor = '#FFFBEB';
       frameStyle = 'badge-bottom';
       frameText = 'VIEW MENU';
-      explanation = `Context Mode (Hospitality): Dining/menu destination detected. Warm culinary tones and tabletop scanning geometry selected.`;
-    } else if (isEducational) {
+      explanation = `Context Mode: Hospitality destination detected. Configured for tabletop reading.`;
+    } else if (cat.includes('education')) {
       dotStyle = 'rounded';
+      eyeStyle = 'rounded';
       fgColor = '#002855';
       frameStyle = 'badge-bottom';
       frameText = 'LEARN MORE';
-      explanation = `Context Mode (Education): Academic/institutional signals detected. Balanced geometry and maximum error correction chosen.`;
-    } else if (isMessaging) {
+      explanation = `Context Mode: Academic/institutional destination. Balanced geometry and high ECC.`;
+    } else if (cat.includes('messaging') || cat.includes('direct')) {
       dotStyle = 'rounded';
+      eyeStyle = 'circle';
       fgColor = '#0F766E';
       frameStyle = 'pill';
       frameText = 'CHAT NOW';
-      explanation = `Context Mode (Messaging): Direct communication destination identified. Compact conversation framing and high contrast applied.`;
-    } else {
-      dotStyle = 'square';
-      fgColor = '#0F172A';
-      bgColor = '#FFFFFF';
-      frameStyle = 'none';
-      explanation = `Context Mode (Intelligent Minimal): Universal web destination. Unobstructed standard geometry composed for reliable general scanning.`;
+      explanation = `Context Mode: Direct messaging destination detected. High-contrast communication framing applied.`;
     }
 
     return {
@@ -984,17 +870,14 @@
   const QRRenderer = {
     getQRMatrix() {
       if (!state.url || typeof qrcode === 'undefined') return null;
-      try {
-        const qr = qrcode(0, state.options.ecc || 'M');
-        qr.addData(state.url);
-        qr.make();
-        return qr;
-      } catch (err) {
-        return null;
-      }
+      const qr = qrcode(0, state.options.ecc || 'M');
+      qr.addData(state.url);
+      qr.make();
+      return qr;
     },
 
     isFinderEyeRegion(r, c, count) {
+      // 7x7 core finder eyes (excluding separators)
       return (
         (r < 7 && c < 7) ||
         (r < 7 && c >= count - 7) ||
@@ -1009,7 +892,7 @@
       return (r >= mid - half && r <= mid + half && c >= mid - half && c <= mid + half);
     },
 
-    renderCanvas(canvas, requestedSize = 480, isExport = false) {
+    renderCanvas(canvas, requestedSize = 480) {
       const ctx = canvas.getContext('2d');
       const baseSize = requestedSize;
 
@@ -1027,21 +910,10 @@
       }
 
       const qr = this.getQRMatrix();
-      if (!qr) {
-        canvas.width = baseSize;
-        canvas.height = baseSize;
-        ctx.fillStyle = state.theme === 'dark' ? '#111827' : '#F8FAFC';
-        ctx.fillRect(0, 0, baseSize, baseSize);
-        ctx.fillStyle = '#DC2626';
-        ctx.font = 'bold 13px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('Content payload too large or invalid for QR generation', baseSize / 2, baseSize / 2);
-        return;
-      }
+      if (!qr) return;
 
       const moduleCount = qr.getModuleCount();
-      const footprint = TelemetryEngine.evaluateAndRepair(moduleCount, isExport);
+      const footprint = TelemetryEngine.evaluateAndRepair(moduleCount);
       const functionMask = QRStructure.createFunctionModuleMask(moduleCount);
       const geo = GeometryEngine.computeLayout(baseSize, moduleCount, state.options.quietZone, state.options.frameStyle);
 
@@ -1066,16 +938,18 @@
       // 3. Render Data Modules & Structural Function Modules
       for (let r = 0; r < moduleCount; r++) {
         for (let c = 0; c < moduleCount; c++) {
-          if (this.isFinderEyeRegion(r, c, moduleCount)) continue;
-          if (this.isCenterReserved(r, c, moduleCount, footprint.sideCells)) continue;
+          if (this.isFinderEyeRegion(r, c, moduleCount)) continue; // Custom-rendered in step 4
+          if (this.isCenterReserved(r, c, moduleCount, footprint.sideCells)) continue; // Safe cutout
 
           if (qr.isDark(r, c)) {
             const x = (c + geo.quietZone) * geo.cellSize;
             const y = geo.topOffset + (r + geo.quietZone) * geo.cellSize;
 
+            // Structural function patterns MUST stay crisp squares for decode reliability
             if (functionMask[r][c] === 1) {
               ctx.fillRect(x, y, geo.cellSize, geo.cellSize);
             } else {
+              // Decorative module styling for ordinary data payloads
               if (state.options.dotStyle === 'dots') {
                 ctx.beginPath();
                 ctx.arc(x + geo.cellSize / 2, y + geo.cellSize / 2, geo.cellSize * 0.42, 0, Math.PI * 2);
@@ -1102,89 +976,87 @@
         }
       }
 
-      // 4. Render Strictly Preserved Structural 7x7 Finder Eyes
+      // 4. Render Finder Eyes
       const eyeDim = geo.cellSize * 7;
-      this.drawCanvasEye(ctx, geo.quietZone * geo.cellSize, geo.topOffset + geo.quietZone * geo.cellSize, eyeDim, geo.cellSize, fill);
-      this.drawCanvasEye(ctx, (geo.quietZone + moduleCount - 7) * geo.cellSize, geo.topOffset + geo.quietZone * geo.cellSize, eyeDim, geo.cellSize, fill);
-      this.drawCanvasEye(ctx, geo.quietZone * geo.cellSize, geo.topOffset + (geo.quietZone + moduleCount - 7) * geo.cellSize, eyeDim, geo.cellSize, fill);
+      this.drawCanvasEye(ctx, geo.quietZone * geo.cellSize, geo.topOffset + geo.quietZone * geo.cellSize, eyeDim, state.options.eyeStyle, fill);
+      this.drawCanvasEye(ctx, (geo.quietZone + moduleCount - 7) * geo.cellSize, geo.topOffset + geo.quietZone * geo.cellSize, eyeDim, state.options.eyeStyle, fill);
+      this.drawCanvasEye(ctx, geo.quietZone * geo.cellSize, geo.topOffset + (geo.quietZone + moduleCount - 7) * geo.cellSize, eyeDim, state.options.eyeStyle, fill);
 
       // 5. Render Central Cutout
       if (footprint.sideCells > 0) {
-        this.drawCanvasCenter(ctx, geo, footprint.sideCells, isExport);
+        this.drawCanvasCenter(ctx, geo, footprint.sideCells);
       }
 
       // 6. Render Frame Completely Outside QR Area
       this.drawCanvasFrame(ctx, geo);
 
-      // 7. Tokenized Hardware Scan Telemetry Test (Preview only)
-      if (!isExport) {
-        const renderToken = ++state.currentRenderToken;
-        TelemetryEngine.testScanDecoding(canvas, renderToken);
+      // 7. Tokenized Hardware Scan Telemetry Test
+      const renderToken = ++state.currentRenderToken;
+      TelemetryEngine.testScanDecoding(canvas, renderToken);
+    },
+
+    drawCanvasEye(ctx, x, y, size, style, fill) {
+      ctx.fillStyle = fill;
+      const innerSize = size * (3 / 7);
+      const innerOffset = size * (2 / 7);
+
+      if (style === 'circle') {
+        ctx.beginPath();
+        ctx.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = state.options.bgColor;
+        ctx.beginPath();
+        ctx.arc(x + size / 2, y + size / 2, size * (5 / 14), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = fill;
+        ctx.beginPath();
+        ctx.arc(x + size / 2, y + size / 2, innerSize / 2, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (style === 'leaf') {
+        const radius = [size * 0.35, 0, size * 0.35, 0];
+        this.roundRect(ctx, x, y, size, size, radius);
+        ctx.fill();
+        ctx.fillStyle = state.options.bgColor;
+        this.roundRect(ctx, x + size / 7, y + size / 7, size * (5 / 7), size * (5 / 7), [size * 0.25, 0, size * 0.25, 0]);
+        ctx.fill();
+        ctx.fillStyle = fill;
+        this.roundRect(ctx, x + innerOffset, y + innerOffset, innerSize, innerSize, [size * 0.15, 0, size * 0.15, 0]);
+        ctx.fill();
+      } else if (style === 'rounded') {
+        this.roundRect(ctx, x, y, size, size, size * 0.25);
+        ctx.fill();
+        ctx.fillStyle = state.options.bgColor;
+        this.roundRect(ctx, x + size / 7, y + size / 7, size * (5 / 7), size * (5 / 7), size * 0.2);
+        ctx.fill();
+        ctx.fillStyle = fill;
+        this.roundRect(ctx, x + innerOffset, y + innerOffset, innerSize, innerSize, innerSize * 0.25);
+        ctx.fill();
+      } else {
+        ctx.fillRect(x, y, size, size);
+        ctx.fillStyle = state.options.bgColor;
+        ctx.fillRect(x + size / 7, y + size / 7, size * (5 / 7), size * (5 / 7));
+        ctx.fillStyle = fill;
+        ctx.fillRect(x + innerOffset, y + innerOffset, innerSize, innerSize);
       }
     },
 
-    /**
-     * Renders an exact, unclipped 7x7 structural QR Finder pattern:
-     * - Outer 7x7 module box
-     * - Clear 1-module separator ring (5x5 module area)
-     * - Solid 3x3 module central core
-     * Strict 1:1:3:1:1 module proportions are preserved exactly without clipping corners.
-     */
-    drawCanvasEye(ctx, x, y, size, cellSize, fill) {
-      const outerSize = size;
-      const innerClearOffset = cellSize;
-      const innerClearSize = cellSize * 5;
-      const coreOffset = cellSize * 2;
-      const coreSize = cellSize * 3;
-
-      // Layer 1: Solid 7x7 module outer square
-      ctx.fillStyle = fill;
-      ctx.fillRect(x, y, outerSize, outerSize);
-
-      // Layer 2: 5x5 module clear separator ring
-      ctx.fillStyle = state.options.bgColor;
-      ctx.fillRect(x + innerClearOffset, y + innerClearOffset, innerClearSize, innerClearSize);
-
-      // Layer 3: Solid 3x3 module central square core
-      ctx.fillStyle = fill;
-      ctx.fillRect(x + coreOffset, y + coreOffset, coreSize, coreSize);
-    },
-
-    drawCanvasCenter(ctx, geo, sideCells, isExport = false) {
+    drawCanvasCenter(ctx, geo, sideCells) {
       const pixelSize = sideCells * geo.cellSize;
       const x = (geo.baseSize - pixelSize) / 2;
       const y = geo.topOffset + (geo.baseSize - pixelSize) / 2;
 
       let img = null;
-      let isCORSUnsafeForExport = false;
-
-      if (state.options.logoMode === 'custom') {
-        if (isExport) {
-          if (state.customLogoDataUrl && state.customLogoImg) {
-            img = state.customLogoImg;
-          } else {
-            isCORSUnsafeForExport = true;
-          }
-        } else {
-          img = state.customLogoImg;
-        }
-      } else if (state.options.logoMode === 'auto') {
-        if (isExport) {
-          if (state.activeLogoDataUrl && state.activeLogoImg) {
-            img = state.activeLogoImg;
-          } else {
-            isCORSUnsafeForExport = true;
-          }
-        } else {
-          img = state.activeLogoImg;
-        }
+      if (state.options.logoMode === 'custom' && state.customLogoImg) {
+        img = state.customLogoImg;
+      } else if (state.options.logoMode === 'auto' && state.activeLogoImg) {
+        img = state.activeLogoImg;
       }
 
       ctx.fillStyle = state.options.bgColor;
       this.roundRect(ctx, x - 2, y - 2, pixelSize + 4, pixelSize + 4, 6);
       ctx.fill();
 
-      if (img && !isCORSUnsafeForExport) {
+      if (img) {
         ctx.save();
         this.roundRect(ctx, x, y, pixelSize, pixelSize, 6);
         ctx.clip();
@@ -1199,8 +1071,7 @@
 
         ctx.drawImage(img, dx, dy, dw, dh);
         ctx.restore();
-      } else if (state.options.centerBadgeText || (isExport && isCORSUnsafeForExport)) {
-        const badgeLabel = state.options.centerBadgeText || (state.detection ? state.detection.badgeText : 'QR');
+      } else if (state.options.centerBadgeText) {
         ctx.fillStyle = state.options.fgColor;
         this.roundRect(ctx, x, y, pixelSize, pixelSize, 6);
         ctx.fill();
@@ -1208,7 +1079,7 @@
         ctx.font = `bold ${Math.round(pixelSize * 0.36)}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(badgeLabel, x + pixelSize / 2, y + pixelSize / 2);
+        ctx.fillText(state.options.centerBadgeText, x + pixelSize / 2, y + pixelSize / 2);
       }
     },
 
@@ -1262,7 +1133,7 @@
       if (!qr) return '';
 
       const moduleCount = qr.getModuleCount();
-      const footprint = TelemetryEngine.evaluateAndRepair(moduleCount, true);
+      const footprint = TelemetryEngine.computeCenterFootprint(moduleCount);
       const functionMask = QRStructure.createFunctionModuleMask(moduleCount);
       const baseSize = 512;
       const geo = GeometryEngine.computeLayout(baseSize, moduleCount, state.options.quietZone, state.options.frameStyle);
@@ -1291,6 +1162,7 @@
             const x = (c + geo.quietZone) * geo.cellSize;
             const y = geo.topOffset + (r + geo.quietZone) * geo.cellSize;
 
+            // Preserve structural function modules as solid squares in vector
             if (functionMask[r][c] === 1) {
               modulesSVG += `<rect x="${x}" y="${y}" width="${geo.cellSize}" height="${geo.cellSize}" ${fillAttr} />`;
             } else {
@@ -1312,26 +1184,42 @@
         }
       }
 
-      // 2. Finder Eyes Subroutine (Strict 7x7 structural modules in SVG matching Canvas)
-      const renderSVGEye = (x, y, eyeSize, cellSize) => {
-        const outerSize = eyeSize;
-        const innerClearOffset = cellSize;
-        const innerClearSize = cellSize * 5;
-        const coreOffset = cellSize * 2;
-        const coreSize = cellSize * 3;
+      // 2. Finder Eyes Subroutine (SVG)
+      const renderSVGEye = (x, y, eyeSize) => {
+        const inner = eyeSize * (3 / 7);
+        const offset = eyeSize * (2 / 7);
 
+        if (state.options.eyeStyle === 'circle') {
+          return `
+            <circle cx="${x + eyeSize / 2}" cy="${y + eyeSize / 2}" r="${eyeSize / 2}" ${fillAttr} />
+            <circle cx="${x + eyeSize / 2}" cy="${y + eyeSize / 2}" r="${eyeSize * (5 / 14)}" fill="${state.options.bgColor}" />
+            <circle cx="${x + eyeSize / 2}" cy="${y + eyeSize / 2}" r="${inner / 2}" ${fillAttr} />
+          `;
+        } else if (state.options.eyeStyle === 'leaf') {
+          return `
+            <path d="M${x + eyeSize * 0.35},${y} h${eyeSize * 0.65} v${eyeSize * 0.65} q0,${eyeSize * 0.35} -${eyeSize * 0.35},${eyeSize * 0.35} h-${eyeSize * 0.65} v-${eyeSize * 0.65} q0,-${eyeSize * 0.35} ${eyeSize * 0.35},-${eyeSize * 0.35} z" ${fillAttr} />
+            <path d="M${x + eyeSize / 7 + eyeSize * (5 / 7) * 0.35},${y + eyeSize / 7} h${eyeSize * (5 / 7) * 0.65} v${eyeSize * (5 / 7) * 0.65} q0,${eyeSize * (5 / 7) * 0.35} -${eyeSize * (5 / 7) * 0.35},${eyeSize * (5 / 7) * 0.35} h-${eyeSize * (5 / 7) * 0.65} v-${eyeSize * (5 / 7) * 0.65} q0,-${eyeSize * (5 / 7) * 0.35} ${eyeSize * (5 / 7) * 0.35},-${eyeSize * (5 / 7) * 0.35} z" fill="${state.options.bgColor}" />
+            <path d="M${x + offset + inner * 0.35},${y + offset} h${inner * 0.65} v${inner * 0.65} q0,${inner * 0.35} -${inner * 0.35},${inner * 0.35} h-${inner * 0.65} v-${inner * 0.65} q0,-${inner * 0.35} ${inner * 0.35},-${inner * 0.35} z" ${fillAttr} />
+          `;
+        } else if (state.options.eyeStyle === 'rounded') {
+          return `
+            <rect x="${x}" y="${y}" width="${eyeSize}" height="${eyeSize}" rx="${eyeSize * 0.25}" ${fillAttr} />
+            <rect x="${x + eyeSize / 7}" y="${y + eyeSize / 7}" width="${eyeSize * (5 / 7)}" height="${eyeSize * (5 / 7)}" rx="${eyeSize * 0.2}" fill="${state.options.bgColor}" />
+            <rect x="${x + offset}" y="${y + offset}" width="${inner}" height="${inner}" rx="${inner * 0.25}" ${fillAttr} />
+          `;
+        }
         return `
-          <rect x="${x}" y="${y}" width="${outerSize}" height="${outerSize}" ${fillAttr} />
-          <rect x="${x + innerClearOffset}" y="${y + innerClearOffset}" width="${innerClearSize}" height="${innerClearSize}" fill="${state.options.bgColor}" />
-          <rect x="${x + coreOffset}" y="${y + coreOffset}" width="${coreSize}" height="${coreSize}" ${fillAttr} />
+          <rect x="${x}" y="${y}" width="${eyeSize}" height="${eyeSize}" ${fillAttr} />
+          <rect x="${x + eyeSize / 7}" y="${y + eyeSize / 7}" width="${eyeSize * (5 / 7)}" height="${eyeSize * (5 / 7)}" fill="${state.options.bgColor}" />
+          <rect x="${x + offset}" y="${y + offset}" width="${inner}" height="${inner}" ${fillAttr} />
         `;
       };
 
       const eyeDim = geo.cellSize * 7;
       const eyesSVG =
-        renderSVGEye(geo.quietZone * geo.cellSize, geo.topOffset + geo.quietZone * geo.cellSize, eyeDim, geo.cellSize) +
-        renderSVGEye((geo.quietZone + moduleCount - 7) * geo.cellSize, geo.topOffset + geo.quietZone * geo.cellSize, eyeDim, geo.cellSize) +
-        renderSVGEye(geo.quietZone * geo.cellSize, geo.topOffset + (geo.quietZone + moduleCount - 7) * geo.cellSize, eyeDim, geo.cellSize);
+        renderSVGEye(geo.quietZone * geo.cellSize, geo.topOffset + geo.quietZone * geo.cellSize, eyeDim) +
+        renderSVGEye((geo.quietZone + moduleCount - 7) * geo.cellSize, geo.topOffset + geo.quietZone * geo.cellSize, eyeDim) +
+        renderSVGEye(geo.quietZone * geo.cellSize, geo.topOffset + (geo.quietZone + moduleCount - 7) * geo.cellSize, eyeDim);
 
       // 3. Center Entity Subroutine (SVG)
       let centerSVG = '';
@@ -1357,7 +1245,7 @@
         }
       }
 
-      // 4. Frame Area (SVG)
+      // 4. Frame Area (SVG, strictly outside the QR matrix)
       let frameSVG = '';
       if (state.options.frameStyle !== 'none') {
         const text = escapeXml(state.options.frameText || 'SCAN ME');
@@ -1396,33 +1284,23 @@
     }
   };
 
-  // --- 11. ABORTABLE AUTO-IMAGE CASCADE RESOLUTION (3.5s TIMEOUT) ---
+  // --- 11. ABORTABLE AUTO-IMAGE CASCADE RESOLUTION ---
   async function resolveAutoImageCascade(candidates, analysisId) {
-    if (!candidates || candidates.length === 0) return { img: null, dataUrl: null, isVerified: false };
+    if (!candidates || candidates.length === 0) return { img: null, dataUrl: null };
 
     const sorted = [...candidates].sort((a, b) => a.priority - b.priority);
 
     for (const item of sorted) {
       if (!item.url) continue;
       if (analysisId !== state.currentAnalysisId) {
-        return { img: null, dataUrl: null, isVerified: false };
+        return { img: null, dataUrl: null };
       }
 
       try {
         const result = await new Promise((resolve, reject) => {
-          let isTimedOut = false;
-          const timeoutId = setTimeout(() => {
-            isTimedOut = true;
-            img.src = '';
-            reject(new Error('Candidate timeout: 3.5s exceeded'));
-          }, 3500);
-
           const img = new Image();
           img.crossOrigin = 'anonymous';
-
           img.onload = () => {
-            if (isTimedOut) return;
-            clearTimeout(timeoutId);
             if (analysisId !== state.currentAnalysisId) {
               reject(new Error('Stale analysis request'));
               return;
@@ -1434,18 +1312,13 @@
               const ctx = canvas.getContext('2d');
               ctx.drawImage(img, 0, 0);
               const dataUrl = canvas.toDataURL('image/png');
-              resolve({ img, dataUrl, isVerified: Boolean(item.isVerified) });
+              resolve({ img, dataUrl });
             } catch (err) {
-              resolve({ img, dataUrl: null, isVerified: Boolean(item.isVerified) });
+              // Canvas tainted by CORS: preserve Canvas bitmap, gracefully omit dataUrl for SVG
+              resolve({ img, dataUrl: null });
             }
           };
-
-          img.onerror = () => {
-            if (isTimedOut) return;
-            clearTimeout(timeoutId);
-            reject(new Error('Network or CORS load failure'));
-          };
-
+          img.onerror = () => reject();
           img.src = item.url;
         });
 
@@ -1453,11 +1326,11 @@
           return result;
         }
       } catch (e) {
-        // Continue to next candidate
+        // Fallthrough to next candidate
       }
     }
 
-    return { img: null, dataUrl: null, isVerified: false };
+    return { img: null, dataUrl: null };
   }
 
   // --- 12. UI COORDINATION & EVENT SYNC ---
@@ -1469,25 +1342,12 @@
     document.getElementById('bgColor').value = state.options.bgColor;
     document.getElementById('bgColorText').value = state.options.bgColor;
     document.getElementById('enableGradient').checked = state.options.useGradient;
-    document.getElementById('fgGradColor').value = state.options.fgGradColor || '#2563EB';
-    document.getElementById('fgGradColorText').value = state.options.fgGradColor || '#2563EB';
     document.getElementById('frameStyleSelect').value = state.options.frameStyle;
     document.getElementById('frameText').value = state.options.frameText;
     document.getElementById('eccSelect').value = state.options.ecc;
     document.getElementById('quietZoneSelect').value = String(state.options.quietZone);
 
-    updateSmartModeUI();
     updateQuietZoneWarning();
-    renderPresets();
-  }
-
-  function updateSmartModeUI() {
-    const identityBtn = document.getElementById('modeIdentityBtn');
-    const contextBtn = document.getElementById('modeContextBtn');
-    if (identityBtn && contextBtn) {
-      identityBtn.classList.toggle('active', state.smartMode === 'identity');
-      contextBtn.classList.toggle('active', state.smartMode === 'context');
-    }
   }
 
   function updateQuietZoneWarning() {
@@ -1510,7 +1370,7 @@
 
   function render() {
     const canvas = document.getElementById('qrCanvas');
-    QRRenderer.renderCanvas(canvas, 480, false);
+    QRRenderer.renderCanvas(canvas, 480); // Live interactive preview at 480px
   }
 
   function updateDetectionUI(det) {
@@ -1551,19 +1411,17 @@
     const analysisId = ++state.currentAnalysisId;
     state.url = rawUrl;
     state.isManualOverride = false;
-    state.activePreset = null;
 
     const { evidence: det, isStale } = await MetadataProvider.fetchEvidence(rawUrl, analysisId);
     if (isStale || analysisId !== state.currentAnalysisId) return;
 
     state.detection = det;
 
-    const { img, dataUrl, isVerified } = await resolveAutoImageCascade(det.imageCandidates, analysisId);
+    const { img, dataUrl } = await resolveAutoImageCascade(det.imageCandidates, analysisId);
     if (analysisId !== state.currentAnalysisId) return;
 
     state.activeLogoImg = img;
     state.activeLogoDataUrl = dataUrl;
-    state.activeLogoIsVerified = isVerified;
 
     updateDetectionUI(det);
     applySmartDesign();
@@ -1572,7 +1430,6 @@
   function applySmartDesign() {
     if (!state.detection) return;
     state.isManualOverride = false;
-    state.activePreset = null;
 
     const chosen = state.smartMode === 'identity'
       ? composeIdentityDesign(state.detection, state.designVariationIndex)
@@ -1602,13 +1459,9 @@
     state.options.eyeStyle = preset.eye;
     state.options.fgColor = preset.fg;
     state.options.bgColor = preset.bg;
-    state.options.useGradient = Boolean(preset.grad);
-    state.options.fgGradColor = preset.gradColor || preset.fg;
-    state.options.ecc = preset.ecc || 'H';
-    state.options.frameStyle = preset.frame || 'none';
-    state.options.frameText = preset.frameText || 'SCAN ME';
+    state.options.useGradient = !!preset.grad;
+    if (preset.gradColor) state.options.fgGradColor = preset.gradColor;
     state.options.centerBadgeText = '';
-
     syncControlsFromState();
     render();
   }
@@ -1633,6 +1486,7 @@
     document.getElementById('urlInput').value = '';
     updateDetectionUI(null);
 
+    // Theme initialization
     document.documentElement.setAttribute('data-theme', state.theme);
     document.querySelectorAll('.theme-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.themeVal === state.theme);
@@ -1656,110 +1510,41 @@
       applySmartDesign();
     };
 
-    // Smart Mode toggle bindings (Identity vs Context)
-    const identityBtn = document.getElementById('modeIdentityBtn');
-    const contextBtn = document.getElementById('modeContextBtn');
-    if (identityBtn && contextBtn) {
-      identityBtn.onclick = () => {
-        if (state.smartMode !== 'identity') {
-          state.smartMode = 'identity';
-          state.designVariationIndex = 0;
-          updateSmartModeUI();
-          applySmartDesign();
-        }
-      };
-      contextBtn.onclick = () => {
-        if (state.smartMode !== 'context') {
-          state.smartMode = 'context';
-          state.designVariationIndex = 0;
-          updateSmartModeUI();
-          applySmartDesign();
-        }
-      };
-    }
+    // Manual change tracker
+    const trackManual = () => { state.isManualOverride = true; };
 
-    const handleManualChange = () => {
-      state.isManualOverride = true;
-      state.activePreset = null;
-      renderPresets();
-    };
-
-    document.getElementById('dotStyleSelect').onchange = e => { handleManualChange(); state.options.dotStyle = e.target.value; render(); };
-    document.getElementById('eyeStyleSelect').onchange = e => { handleManualChange(); state.options.eyeStyle = e.target.value; render(); };
-
-    // Validated color controls
+    document.getElementById('dotStyleSelect').onchange = e => { trackManual(); state.options.dotStyle = e.target.value; render(); };
+    document.getElementById('eyeStyleSelect').onchange = e => { trackManual(); state.options.eyeStyle = e.target.value; render(); };
     document.getElementById('fgColor').oninput = e => {
-      if (isValidHexColor(e.target.value)) {
-        handleManualChange();
-        state.options.fgColor = normalizeHexColor(e.target.value);
-        document.getElementById('fgColorText').value = state.options.fgColor;
-        render();
-      }
-    };
-    document.getElementById('fgColorText').onchange = e => {
-      if (isValidHexColor(e.target.value)) {
-        handleManualChange();
-        state.options.fgColor = normalizeHexColor(e.target.value);
-        document.getElementById('fgColor').value = state.options.fgColor;
-        document.getElementById('fgColorText').value = state.options.fgColor;
-        render();
-      } else {
-        document.getElementById('fgColorText').value = state.options.fgColor;
-      }
-    };
-
-    document.getElementById('bgColor').oninput = e => {
-      if (isValidHexColor(e.target.value)) {
-        handleManualChange();
-        state.options.bgColor = normalizeHexColor(e.target.value);
-        document.getElementById('bgColorText').value = state.options.bgColor;
-        render();
-      }
-    };
-    document.getElementById('bgColorText').onchange = e => {
-      if (isValidHexColor(e.target.value)) {
-        handleManualChange();
-        state.options.bgColor = normalizeHexColor(e.target.value);
-        document.getElementById('bgColor').value = state.options.bgColor;
-        document.getElementById('bgColorText').value = state.options.bgColor;
-        render();
-      } else {
-        document.getElementById('bgColorText').value = state.options.bgColor;
-      }
-    };
-
-    document.getElementById('enableGradient').onchange = e => {
-      handleManualChange();
-      state.options.useGradient = e.target.checked;
+      trackManual();
+      state.options.fgColor = e.target.value;
+      document.getElementById('fgColorText').value = e.target.value;
       render();
     };
-
-    document.getElementById('fgGradColor').oninput = e => {
-      if (isValidHexColor(e.target.value)) {
-        handleManualChange();
-        state.options.fgGradColor = normalizeHexColor(e.target.value);
-        document.getElementById('fgGradColorText').value = state.options.fgGradColor;
-        render();
-      }
+    document.getElementById('fgColorText').onchange = e => {
+      trackManual();
+      state.options.fgColor = e.target.value;
+      document.getElementById('fgColor').value = e.target.value;
+      render();
     };
-    document.getElementById('fgGradColorText').onchange = e => {
-      if (isValidHexColor(e.target.value)) {
-        handleManualChange();
-        state.options.fgGradColor = normalizeHexColor(e.target.value);
-        document.getElementById('fgGradColor').value = state.options.fgGradColor;
-        document.getElementById('fgGradColorText').value = state.options.fgGradColor;
-        render();
-      } else {
-        document.getElementById('fgGradColorText').value = state.options.fgGradColor;
-      }
+    document.getElementById('bgColor').oninput = e => {
+      trackManual();
+      state.options.bgColor = e.target.value;
+      document.getElementById('bgColorText').value = e.target.value;
+      render();
     };
-
-    document.getElementById('frameStyleSelect').onchange = e => { handleManualChange(); state.options.frameStyle = e.target.value; render(); };
-    document.getElementById('frameText').oninput = e => { handleManualChange(); state.options.frameText = e.target.value; render(); };
-    document.getElementById('eccSelect').onchange = e => { handleManualChange(); state.options.ecc = e.target.value; render(); };
-
+    document.getElementById('bgColorText').onchange = e => {
+      trackManual();
+      state.options.bgColor = e.target.value;
+      document.getElementById('bgColor').value = e.target.value;
+      render();
+    };
+    document.getElementById('enableGradient').onchange = e => { trackManual(); state.options.useGradient = e.target.checked; render(); };
+    document.getElementById('frameStyleSelect').onchange = e => { trackManual(); state.options.frameStyle = e.target.value; render(); };
+    document.getElementById('frameText').oninput = e => { trackManual(); state.options.frameText = e.target.value; render(); };
+    document.getElementById('eccSelect').onchange = e => { trackManual(); state.options.ecc = e.target.value; render(); };
     document.getElementById('quietZoneSelect').onchange = e => {
-      handleManualChange();
+      trackManual();
       state.options.quietZone = parseInt(e.target.value, 10);
       updateQuietZoneWarning();
       render();
@@ -1767,7 +1552,7 @@
 
     document.querySelectorAll('input[name="logoMode"]').forEach(radio => {
       radio.onchange = e => {
-        handleManualChange();
+        trackManual();
         state.options.logoMode = e.target.value;
         const uploadCont = document.getElementById('customUploadContainer');
         if (uploadCont) uploadCont.classList.toggle('hidden-field', e.target.value !== 'custom');
@@ -1778,7 +1563,7 @@
     const logoUpload = document.getElementById('logoUpload');
     if (logoUpload) {
       logoUpload.onchange = e => {
-        handleManualChange();
+        trackManual();
         const file = e.target.files[0];
         if (file) {
           const reader = new FileReader();
@@ -1799,22 +1584,16 @@
     document.getElementById('downloadPngBtn').onclick = () => {
       if (!state.url) return;
       const exportCanvas = document.createElement('canvas');
-      QRRenderer.renderCanvas(exportCanvas, 1600, true);
-      try {
-        const dataUrl = exportCanvas.toDataURL('image/png');
-        const link = document.createElement('a');
-        link.download = `smart-qr-${Date.now()}.png`;
-        link.href = dataUrl;
-        link.click();
-      } catch (err) {
-        console.error('PNG Export Error:', err);
-      }
+      QRRenderer.renderCanvas(exportCanvas, 1600); // Production PNG export rendered at full 1600px
+      const link = document.createElement('a');
+      link.download = `smart-qr-${Date.now()}.png`;
+      link.href = exportCanvas.toDataURL('image/png');
+      link.click();
     };
 
     document.getElementById('downloadSvgBtn').onclick = () => {
       if (!state.url) return;
       const svg = QRRenderer.generateSVG();
-      if (!svg) return;
       const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');

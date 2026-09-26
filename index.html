@@ -46,7 +46,7 @@
         </div>
       </div>
 
-      <!-- Smart Detection Card (Clean Initial State) -->
+      <!-- Smart Detection Card -->
       <div class="card detection-card" id="detectionCard">
         <div class="detection-header">
           <div class="badge-confidence" id="confidenceBadge">Awaiting Input</div>
@@ -84,7 +84,7 @@
       <div class="card presets-card">
         <label class="card-label">Distinct Design Presets</label>
         <div class="presets-grid" id="presetsGrid">
-          <!-- Presets will render dynamically -->
+          <!-- Presets dynamically render here -->
         </div>
       </div>
 
@@ -169,16 +169,19 @@
             <label>QR Text (Integrated Inside Matrix)</label>
             <div class="qr-text-box">
               <div class="qr-text-row">
-                <input type="text" id="qrTextInput" class="qr-text-input" placeholder="e.g. PAULA, MENU, SCAN" maxlength="12" autocomplete="off" spellcheck="false">
-                <button type="button" id="qrTextClearBtn" class="clear-btn">Clear</button>
+                <input type="text" id="qrTextInput" class="qr-text-input" placeholder="e.g. JOHN, MENU, SCAN, PAUL" maxlength="12" autocomplete="off" spellcheck="false">
+                <button type="button" id="qrTextApplyBtn" class="apply-text-btn">Apply</button>
               </div>
-              <div class="control-row" style="margin-top: 4px;">
+              <div class="control-row" style="margin-top: 6px;">
                 <div class="control-group">
                   <label for="qrTextModeSelect">Rendering Mode</label>
                   <select id="qrTextModeSelect">
                     <option value="dot">Dot Text (Dark Modules)</option>
                     <option value="negative">Negative Text (Cutout)</option>
                   </select>
+                </div>
+                <div class="control-group" style="justify-content: flex-end;">
+                  <button type="button" id="qrTextClearBtn" class="clear-btn">Clear</button>
                 </div>
               </div>
             </div>

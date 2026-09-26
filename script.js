@@ -1,13 +1,11 @@
 /**
  * Smart QR Studio — Dynamic Evidence-Based QR Platform
- * Production Script with Complete QR Text Functionality:
+ * Production Script with True In-Matrix QR Text Integration:
+ * - Direct matrix pixel injection for QR Text (Dot Text & Negative Space)
+ * - Automatic override of center badge when QR Text is active
  * - Structural 7x7 Finder Pattern Preservation (Canvas & SVG)
- * - Validated Server Theme-Color & Robust Contrast Repair
- * - Clean Initial State (No Demo Data)
  * - Safe Custom Logo Upload with Local DataURL Caching
- * - In-Matrix QR Text Engine (Dot Text & Negative Text)
- * - Apply & Clear Action-Driven QR Text Integration
- * - Hardware Barcode Detection Telemetry with Race-Condition Token
+ * - Exact Canvas & SVG parity
  */
 
 (function () {
@@ -18,7 +16,7 @@
     url: '',
     theme: localStorage.getItem('smart_qr_app_theme') || 'system',
     detection: null,
-    smartMode: 'identity', // 'identity' | 'context'
+    smartMode: 'identity',
     designVariationIndex: 0,
     activePreset: null,
     activeLogoImg: null,
@@ -30,17 +28,17 @@
     currentAnalysisId: 0,
     currentRenderToken: 0,
     options: {
-      dotStyle: 'square', // 'square' | 'rounded' | 'dots' | 'classy' | 'smooth'
-      eyeStyle: 'square', // 'square' | 'rounded' | 'circle' | 'leaf'
+      dotStyle: 'square',
+      eyeStyle: 'square',
       fgColor: '#0F172A',
       bgColor: '#FFFFFF',
       useGradient: false,
       fgGradColor: '#2563EB',
-      logoMode: 'auto', // 'auto' | 'none' | 'custom'
+      logoMode: 'auto',
       centerBadgeText: '',
-      qrText: '', // Integrated Custom QR Text (starts empty)
+      qrText: '', // In-matrix custom text
       qrTextMode: 'dot', // 'dot' | 'negative'
-      frameStyle: 'none', // 'none' | 'badge-top' | 'badge-bottom' | 'pill'
+      frameStyle: 'none',
       frameText: 'SCAN ME',
       ecc: 'H',
       quietZone: 4,
@@ -124,11 +122,9 @@
       }
 
       parsed.hostname = parsed.hostname.toLowerCase();
-
       if (parsed.pathname === '/') {
         parsed.pathname = '';
       }
-
       return parsed.href;
     } catch (e) {
       return trimmed;
@@ -168,7 +164,7 @@
       const mask = Array.from({ length: moduleCount }, () => new Uint8Array(moduleCount));
       const v = this.getVersion(moduleCount);
 
-      // 1. Finder patterns + separators (8x8 module regions)
+      // Finder patterns + 1-module separators
       for (let r = 0; r < 9; r++) {
         for (let c = 0; c < 9; c++) {
           if (r < moduleCount && c < moduleCount) mask[r][c] = 1;
@@ -177,7 +173,7 @@
         }
       }
 
-      // 2. Format Information Areas
+      // Format Information Areas
       for (let i = 0; i <= 8; i++) {
         if (i < moduleCount) {
           mask[8][i] = 1;
@@ -191,13 +187,13 @@
         if (r >= 0) mask[r][8] = 1;
       }
 
-      // 3. Timing patterns
+      // Timing patterns
       for (let i = 0; i < moduleCount; i++) {
         mask[6][i] = 1;
         mask[i][6] = 1;
       }
 
-      // 4. Alignment patterns
+      // Alignment patterns
       if (v >= 2 && v <= 40 && this.alignmentPatternCenters[v]) {
         const centers = this.alignmentPatternCenters[v];
         for (let i = 0; i < centers.length; i++) {
@@ -222,7 +218,7 @@
         }
       }
 
-      // 5. Version info areas
+      // Version info
       if (v >= 7) {
         for (let r = 0; r < 6; r++) {
           for (let c = 0; c < 3; c++) {
@@ -232,7 +228,7 @@
         }
       }
 
-      // 6. Dark module
+      // Dark module
       const darkModuleRow = 4 * v + 9;
       if (darkModuleRow < moduleCount) {
         mask[darkModuleRow][8] = 1;
@@ -242,77 +238,82 @@
     }
   };
 
-  // --- 4. MODULAR CUSTOM QR TEXT ENGINE ---
+  // --- 4. ACCURATE IN-MATRIX QR TEXT ENGINE ---
   const QRTextEngine = {
-    rasterizeText(text, targetWidth, targetHeight) {
-      const canvas = document.createElement('canvas');
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    rasterizeToModules(text, targetWidth, targetHeight) {
+      // Use higher resolution canvas to sample crisp glyph pixels
+      const scale = 8;
+      const cvs = document.createElement('canvas');
+      cvs.width = targetWidth * scale;
+      cvs.height = targetHeight * scale;
+      const ctx = cvs.getContext('2d');
 
       ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, targetWidth, targetHeight);
+      ctx.fillRect(0, 0, cvs.width, cvs.height);
 
       ctx.fillStyle = '#000000';
-      ctx.font = `bold ${Math.max(6, Math.floor(targetHeight * 0.85))}px sans-serif`;
+      const fontSize = Math.floor(cvs.height * 0.85);
+      ctx.font = `900 ${fontSize}px sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(text, targetWidth / 2, targetHeight / 2);
+      ctx.fillText(text, cvs.width / 2, cvs.height / 2);
 
-      const imgData = ctx.getImageData(0, 0, targetWidth, targetHeight).data;
+      const imgData = ctx.getImageData(0, 0, cvs.width, cvs.height).data;
       const mask = [];
 
       for (let y = 0; y < targetHeight; y++) {
         mask[y] = new Uint8Array(targetWidth);
         for (let x = 0; x < targetWidth; x++) {
-          const idx = (y * targetWidth + x) * 4;
-          const brightness = (imgData[idx] + imgData[idx + 1] + imgData[idx + 2]) / 3;
-          if (brightness < 128) {
-            mask[y][x] = 1;
+          // Average the pixel block
+          let darkCount = 0;
+          for (let sy = 0; sy < scale; sy++) {
+            for (let sx = 0; sx < scale; sx++) {
+              const px = x * scale + sx;
+              const py = y * scale + sy;
+              const idx = (py * cvs.width + px) * 4;
+              if (imgData[idx] < 128) {
+                darkCount++;
+              }
+            }
           }
+          mask[y][x] = darkCount >= (scale * scale * 0.35) ? 1 : 0;
         }
       }
       return mask;
     },
 
-    computePlacement(moduleCount, footprint, text) {
+    computePlacement(moduleCount, text) {
       if (!text || !text.trim()) return null;
-      const clean = text.trim().toUpperCase().slice(0, 12);
+      const clean = text.trim().toUpperCase().slice(0, 10);
       const functionMask = QRStructure.createFunctionModuleMask(moduleCount);
 
-      const textHeight = Math.min(7, Math.max(5, Math.floor(moduleCount * 0.18)));
-      const textWidth = Math.min(moduleCount - 16, Math.max(clean.length * 3, Math.floor(clean.length * 3.5)));
+      // Height: 5 to 7 modules, Width: proportional to letters
+      const targetHeight = 6;
+      const charWidth = 4;
+      const targetWidth = Math.min(moduleCount - 18, clean.length * charWidth + (clean.length - 1));
 
-      if (textWidth <= 0 || textHeight <= 0) return null;
+      if (targetWidth <= 0) return null;
 
-      let startRow;
-      if (footprint && footprint.sideCells > 0) {
-        startRow = Math.floor(moduleCount / 2) + Math.floor(footprint.sideCells / 2) + 2;
-        if (startRow + textHeight >= moduleCount - 8) {
-          startRow = Math.floor(moduleCount / 2) - Math.floor(footprint.sideCells / 2) - textHeight - 2;
-        }
-      } else {
-        startRow = Math.floor((moduleCount - textHeight) / 2);
-      }
+      const startRow = Math.floor((moduleCount - targetHeight) / 2);
+      const startCol = Math.floor((moduleCount - targetWidth) / 2);
 
-      const startCol = Math.floor((moduleCount - textWidth) / 2);
-
-      for (let r = startRow; r < startRow + textHeight; r++) {
-        for (let c = startCol; c < startCol + textWidth; c++) {
+      // Verify safety: Must not touch finders, timing, or format patterns
+      for (let r = startRow; r < startRow + targetHeight; r++) {
+        for (let c = startCol; c < startCol + targetWidth; c++) {
           if (r < 0 || r >= moduleCount || c < 0 || c >= moduleCount) return null;
           if (functionMask[r][c] === 1) return null;
         }
       }
 
-      const pixelMask = this.rasterizeText(clean, textWidth, textHeight);
+      const mask = this.rasterizeToModules(clean, targetWidth, targetHeight);
 
       return {
         text: clean,
         startRow,
         startCol,
-        width: textWidth,
-        height: textHeight,
-        mask: pixelMask
+        width: targetWidth,
+        height: targetHeight,
+        mask
       };
     }
   };
@@ -602,7 +603,7 @@
             confidence = 'Verified server metadata';
           }
         } catch (err) {
-          // Fallback to structural heuristics
+          // Fallback
         }
       }
 
@@ -705,6 +706,11 @@
     },
 
     computeCenterFootprint(moduleCount, isExportMode = false) {
+      // If QR text is active, do not allocate an overlapping center logo footprint
+      if (state.options.qrText && state.options.qrText.trim()) {
+        return { sideCells: 0, coverageRatio: 0 };
+      }
+
       if (state.options.logoMode === 'none') {
         return { sideCells: 0, coverageRatio: 0 };
       }
@@ -871,7 +877,7 @@
       const assetDescriptor = state.activeLogoIsVerified ? 'verified server asset' : 'resolved identity asset';
       explanation += ` Center integrated with ${assetDescriptor} and brand geometry.`;
     } else {
-      explanation += ` Center integrated with generated badge [${badge}] and safe contrast.`;
+      explanation += ` Clean brand geometry and safe contrast applied.`;
     }
 
     return {
@@ -881,7 +887,8 @@
       bgColor: '#FFFFFF',
       useGradient: pick.useGrad,
       fgGradColor: pick.gradColor,
-      centerBadgeText: hasImage ? '' : badge,
+      // If user provided custom QR Text, suppress the generic badge
+      centerBadgeText: state.options.qrText ? '' : (hasImage ? '' : badge),
       ecc: 'H',
       quietZone: 4,
       frameStyle: 'pill',
@@ -949,7 +956,6 @@
       explanation = `Context Mode (Editorial/Reference): Structured document/article destination. Classical geometry and high readability contrast applied.`;
     } else if (isDiningHospitality) {
       dotStyle = 'smooth';
-      eyeStyle = 'square';
       fgColor = '#9A3412';
       bgColor = '#FFFBEB';
       frameStyle = 'badge-bottom';
@@ -957,21 +963,18 @@
       explanation = `Context Mode (Hospitality): Dining/menu destination detected. Warm culinary tones and tabletop scanning geometry selected.`;
     } else if (isEducational) {
       dotStyle = 'rounded';
-      eyeStyle = 'square';
       fgColor = '#002855';
       frameStyle = 'badge-bottom';
       frameText = 'LEARN MORE';
       explanation = `Context Mode (Education): Academic/institutional signals detected. Balanced geometry and maximum error correction chosen.`;
     } else if (isMessaging) {
       dotStyle = 'rounded';
-      eyeStyle = 'square';
       fgColor = '#0F766E';
       frameStyle = 'pill';
       frameText = 'CHAT NOW';
       explanation = `Context Mode (Messaging): Direct communication destination identified. Compact conversation framing and high contrast applied.`;
     } else {
       dotStyle = 'square';
-      eyeStyle = 'square';
       fgColor = '#0F172A';
       bgColor = '#FFFFFF';
       frameStyle = 'none';
@@ -1095,7 +1098,7 @@
       const geo = GeometryEngine.computeLayout(baseSize, moduleCount, state.options.quietZone, state.options.frameStyle);
 
       // Compute in-matrix QR Text placement
-      const textPlacement = QRTextEngine.computePlacement(moduleCount, footprint, state.options.qrText);
+      const textPlacement = QRTextEngine.computePlacement(moduleCount, state.options.qrText);
 
       canvas.width = geo.totalWidth;
       canvas.height = geo.totalHeight;
@@ -1123,6 +1126,7 @@
 
           let isModuleDark = qr.isDark(r, c);
 
+          // Apply in-matrix QR Text modification
           if (textPlacement &&
               r >= textPlacement.startRow && r < textPlacement.startRow + textPlacement.height &&
               c >= textPlacement.startCol && c < textPlacement.startCol + textPlacement.width) {
@@ -1131,9 +1135,11 @@
             const isTextPixel = textPlacement.mask[tr][tc] === 1;
 
             if (state.options.qrTextMode === 'dot') {
-              if (isTextPixel) isModuleDark = true;
+              // Letters are formed by dark modules; non-letter pixels inside the text block stay clear
+              isModuleDark = isTextPixel;
             } else if (state.options.qrTextMode === 'negative') {
-              if (isTextPixel) isModuleDark = false;
+              // Letters are carved out (clear), background block is dark
+              isModuleDark = !isTextPixel;
             }
           }
 
@@ -1176,7 +1182,7 @@
       this.drawCanvasEye(ctx, (geo.quietZone + moduleCount - 7) * geo.cellSize, geo.topOffset + geo.quietZone * geo.cellSize, eyeDim, geo.cellSize, fill);
       this.drawCanvasEye(ctx, geo.quietZone * geo.cellSize, geo.topOffset + (geo.quietZone + moduleCount - 7) * geo.cellSize, eyeDim, geo.cellSize, fill);
 
-      // 5. Render Central Cutout
+      // 5. Render Central Logo Cutout (only if QR Text is not overriding center)
       if (footprint.sideCells > 0) {
         this.drawCanvasCenter(ctx, geo, footprint.sideCells, isExport);
       }
@@ -1325,7 +1331,7 @@
       const baseSize = 512;
       const geo = GeometryEngine.computeLayout(baseSize, moduleCount, state.options.quietZone, state.options.frameStyle);
 
-      const textPlacement = QRTextEngine.computePlacement(moduleCount, footprint, state.options.qrText);
+      const textPlacement = QRTextEngine.computePlacement(moduleCount, state.options.qrText);
 
       let defs = '';
       let fillAttr = `fill="${state.options.fgColor}"`;
@@ -1357,9 +1363,9 @@
             const isTextPixel = textPlacement.mask[tr][tc] === 1;
 
             if (state.options.qrTextMode === 'dot') {
-              if (isTextPixel) isModuleDark = true;
+              isModuleDark = isTextPixel;
             } else if (state.options.qrTextMode === 'negative') {
-              if (isTextPixel) isModuleDark = false;
+              isModuleDark = !isTextPixel;
             }
           }
 
@@ -1736,7 +1742,6 @@
       applySmartDesign();
     };
 
-    // Smart Mode toggle bindings
     const identityBtn = document.getElementById('modeIdentityBtn');
     const contextBtn = document.getElementById('modeContextBtn');
     if (identityBtn && contextBtn) {
@@ -1767,7 +1772,7 @@
     document.getElementById('dotStyleSelect').onchange = e => { handleManualChange(); state.options.dotStyle = e.target.value; render(); };
     document.getElementById('eyeStyleSelect').onchange = e => { handleManualChange(); state.options.eyeStyle = e.target.value; render(); };
 
-    // Validated color controls
+    // Color inputs
     document.getElementById('fgColor').oninput = e => {
       if (isValidHexColor(e.target.value)) {
         handleManualChange();
@@ -1834,7 +1839,7 @@
       }
     };
 
-    // QR Text - Apply & Clear Actions
+    // --- QR TEXT APPLY & CLEAR ACTIONS ---
     const qrTextInput = document.getElementById('qrTextInput');
     const qrTextApplyBtn = document.getElementById('qrTextApplyBtn');
     const qrTextClearBtn = document.getElementById('qrTextClearBtn');
@@ -1843,8 +1848,11 @@
     if (qrTextApplyBtn) {
       qrTextApplyBtn.onclick = () => {
         if (!qrTextInput) return;
-        handleManualChange();
-        state.options.qrText = qrTextInput.value.trim().toUpperCase().slice(0, 12);
+        const val = qrTextInput.value.trim().toUpperCase().slice(0, 10);
+        state.isManualOverride = true;
+        state.options.qrText = val;
+        // Suppress generic center badge to let in-matrix text stand out
+        state.options.centerBadgeText = '';
         render();
       };
     }
@@ -1860,7 +1868,7 @@
 
     if (qrTextModeSelect) {
       qrTextModeSelect.onchange = e => {
-        handleManualChange();
+        state.isManualOverride = true;
         state.options.qrTextMode = e.target.value;
         if (state.options.qrText) {
           render();
@@ -1870,7 +1878,7 @@
 
     if (qrTextClearBtn) {
       qrTextClearBtn.onclick = () => {
-        handleManualChange();
+        state.isManualOverride = true;
         state.options.qrText = '';
         if (qrTextInput) qrTextInput.value = '';
         render();

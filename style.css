@@ -512,6 +512,23 @@ body {
   letter-spacing: 0.05em;
 }
 
+.apply-text-btn {
+  background-color: var(--primary);
+  color: var(--primary-text);
+  border: 1px solid transparent;
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 0.62rem 1.15rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.apply-text-btn:hover {
+  background-color: var(--primary-hover);
+}
+
 .clear-btn {
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
